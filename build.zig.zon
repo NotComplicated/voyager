@@ -1,0 +1,16 @@
+.{
+    .name = "voyager",
+    .version = "0.0.1",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{
+        .@"raylib-zig" = .{
+            .url = "git+https://github.com/Not-Nik/raylib-zig?ref=devel#5004bb2316fc34a416644f3910c8c79dd08d7c63",
+            .hash = "1220223e9881fc9510eeb30fc2ee73fb49ee645bf1859cc46a92b649d35ecfd3351a",
+        },
+    },
+    .paths = .{
+        "main.zig",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
