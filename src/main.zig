@@ -12,7 +12,7 @@ pub fn main() !void {
         _ = gpa.detectLeaks();
         _ = gpa.deinit();
     }
-    const alloc = gpa.allocator();
+    _ = gpa.allocator();
 
     const width = 800;
     const height = 450;
