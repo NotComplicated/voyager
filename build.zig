@@ -7,36 +7,13 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const raylib_dep = b.dependency("raylib-zig", .{
+    const console = b.option(bool, "console", "Enable console mode") orelse false;
+
+    const clay = b.dependency("clay", .{
         .target = target,
         .optimize = optimize,
+        .raylib_renderer = true,
     });
-
-    const raylib = raylib_dep.module("raylib");
-    const raygui = raylib_dep.module("raygui");
-    const raylib_artifact = raylib_dep.artifact("raylib");
-
-    //web exports are completely separate
-    if (target.query.os_tag == .emscripten) {
-        const exe_lib = try rlz.emcc.compileForEmscripten(b, name, "src/main.zig", target, optimize);
-
-        exe_lib.linkLibrary(raylib_artifact);
-        exe_lib.root_module.addImport("raylib", raylib);
-        exe_lib.root_module.addImport("raygui", raygui);
-
-        // Note that raylib itself is not actually added to the exe_lib output file, so it also needs to be linked with emscripten.
-        const link_step = try rlz.emcc.linkWithEmscripten(b, &[_]*std.Build.Step.Compile{ exe_lib, raylib_artifact });
-        //this lets your program access files like "resources/my-image.png":
-        link_step.addArg("--embed-file");
-        link_step.addArg("resources/");
-
-        b.getInstallStep().dependOn(&link_step.step);
-        const run_step = try rlz.emcc.emscriptenRunStep(b);
-        run_step.step.dependOn(&link_step.step);
-        const run_option = b.step("run", "Run " ++ name);
-        run_option.dependOn(&run_step.step);
-        return;
-    }
 
     const exe = b.addExecutable(.{
         .name = name,
@@ -46,12 +23,11 @@ pub fn build(b: *std.Build) !void {
     });
 
     if (target.result.os.tag == .windows) {
-        exe.subsystem = .Windows;
+        exe.subsystem = if (console) .Console else .Windows;
     }
 
-    exe.linkLibrary(raylib_artifact);
-    exe.root_module.addImport("raylib", raylib);
-    exe.root_module.addImport("raygui", raygui);
+    exe.root_module.addImport("raylib", clay.module("raylib"));
+    exe.root_module.addImport("clay", clay.module("clay"));
 
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run " ++ name);
