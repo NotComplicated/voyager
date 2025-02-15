@@ -23,16 +23,22 @@ const rl_config = rl.ConfigFlags{
 const roboto = @embedFile("resources/roboto.ttf");
 
 const FontSize = enum(u16) {
-    sm = 16,
+    sm = 24,
     md = 32,
-    lg = 64,
+    lg = 40,
+    xl = 48,
 };
 
 fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }
 
+fn vector2_rl_to_clay(v: rl.Vector2) clay.Vector2 {
+    return .{ .x = v.x, .y = v.y };
+}
+
 const black = rgb(0, 0, 0);
+const white = rgb(255, 255, 255);
 
 fn text(contents: []const u8, comptime font_size: FontSize, color: clay.Color) void {
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
@@ -55,29 +61,36 @@ pub fn main() !void {
     clay.setMeasureTextFunction(renderer.measureText);
     _ = clay.initialize(arena, .{ .width = width, .height = height }, .{});
     renderer.initialize(width, height, title, rl_config);
+    rl.setExitKey(.null);
 
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
         const roboto_font = try rl.Font.fromMemory(".ttf", roboto, @intFromEnum(size), null);
         rl.setTextureFilter(roboto_font.texture, .anisotropic_8x);
         renderer.addFont(id, roboto_font);
     }
-    defer inline for (0..comptime enums.values(FontSize).len) |i| renderer.getFont(i).unload();
+    defer inline for (0..comptime enums.values(FontSize).len) |id| renderer.getFont(id).unload();
 
     while (!rl.windowShouldClose()) frame(alloc);
 }
 
 fn frame(alloc: mem.Allocator) void {
+    const delta = rl.getFrameTime();
+
     rl.beginDrawing();
     defer rl.endDrawing();
 
+    clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
+    clay.setPointerState(vector2_rl_to_clay(rl.getMousePosition()), rl.isMouseButtonDown(.left));
+    clay.updateScrollContainers(true, vector2_rl_to_clay(rl.getMouseWheelMoveV()), delta);
     rl.clearBackground(rl.Color.light_gray);
 
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), alloc);
+
     clay.ui()(.{
         .id = clay.idi("Foo", 0),
         .layout = .{ .padding = clay.Padding.all(5) },
     })({
-        text("Hello, world!", .lg, black);
+        text("Hello, world!", .md, black);
     });
 }
