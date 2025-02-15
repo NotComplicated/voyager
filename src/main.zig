@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const std = @import("std");
 const heap = std.heap;
 const mem = std.mem;
@@ -33,7 +35,7 @@ fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }
 
-fn vector2_rl_to_clay(v: rl.Vector2) clay.Vector2 {
+fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
 
@@ -60,6 +62,7 @@ pub fn main() !void {
 
     clay.setMeasureTextFunction(renderer.measureText);
     _ = clay.initialize(arena, .{ .width = width, .height = height }, .{});
+    clay.setDebugModeEnabled(builtin.mode == .Debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
 
@@ -76,15 +79,14 @@ pub fn main() !void {
 fn frame(alloc: mem.Allocator) void {
     const delta = rl.getFrameTime();
 
-    rl.beginDrawing();
-    defer rl.endDrawing();
-
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
-    clay.setPointerState(vector2_rl_to_clay(rl.getMousePosition()), rl.isMouseButtonDown(.left));
-    clay.updateScrollContainers(true, vector2_rl_to_clay(rl.getMouseWheelMoveV()), delta);
+    clay.setPointerState(vector_conv(rl.getMousePosition()), rl.isMouseButtonDown(.left));
+    clay.updateScrollContainers(true, vector_conv(rl.getMouseWheelMoveV()), delta);
     rl.clearBackground(rl.Color.light_gray);
 
     clay.beginLayout();
+    rl.beginDrawing();
+    defer rl.endDrawing();
     defer renderer.render(clay.endLayout(), alloc);
 
     clay.ui()(.{
