@@ -12,6 +12,8 @@ const renderer = clay.renderers.raylib;
 
 const rl = @import("raylib");
 
+const Model = @import("Model.zig");
+
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = if (debug) 1200 else 800;
 const height = 480;
@@ -45,7 +47,7 @@ fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
 
-fn text(contents: []const u8, comptime font_size: FontSize) void {
+fn text(comptime font_size: FontSize, contents: []const u8) void {
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
         if (size == font_size) {
             clay.text(contents, .{
@@ -77,25 +79,24 @@ pub fn main() !void {
     }
     defer inline for (0..comptime enums.values(FontSize).len) |id| renderer.getFont(id).unload();
 
-    while (!rl.windowShouldClose()) frame();
+    // a buffer for the raylib renderer to use for temporary string copies
+    var buf: [4096]u8 = undefined;
+    var fba = heap.FixedBufferAllocator.init(&buf);
+
+    var model = try Model.init();
+
+    while (!rl.windowShouldClose()) frame(fba.allocator(), &model);
 }
 
-fn frame() void {
+fn frame(alloc: mem.Allocator, model: *Model) void {
     const delta = rl.getFrameTime();
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
     clay.setPointerState(vector_conv(rl.getMousePosition()), rl.isMouseButtonDown(.left));
     clay.updateScrollContainers(true, vector_conv(rl.getMouseWheelMoveV()), delta);
-
     rl.beginDrawing();
     defer rl.endDrawing();
-
     clay.beginLayout();
-    defer {
-        // a buffer for the raylib renderer to use for temporary string copies
-        var buf: [fs.max_path_bytes + 1]u8 = undefined;
-        var fba = heap.FixedBufferAllocator.init(&buf);
-        renderer.render(clay.endLayout(), fba.allocator());
-    }
+    defer renderer.render(clay.endLayout(), alloc);
 
     clay.ui()(.{
         .id = clay.id("Screen"),
@@ -104,9 +105,18 @@ fn frame() void {
                 .width = .{ .size = .{ .percent = 1 }, .type = .percent },
                 .height = .{ .size = .{ .percent = 1 }, .type = .percent },
             },
+            .layout_direction = .top_to_bottom,
         },
         .rectangle = .{ .color = catppuccin.base },
     })({
-        //
+        text(.sm, model.cwd.slice());
+        clay.ui()(.{ .id = clay.id("Entries"), .layout = .{ .layout_direction = .top_to_bottom } })({
+            for (model.entries.slice(), 0..) |*entry, i| {
+                clay.ui()(.{ .id = clay.idi("Entry", @intCast(i)) })({
+                    if (entry.is_dir) text(.sm, "(dir)");
+                    text(.sm, entry.name.slice());
+                });
+            }
+        });
     });
 }
