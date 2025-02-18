@@ -143,6 +143,12 @@ fn render_frame() void {
                     text(.sm, entries.items(.name)[i]);
                 });
             }
+            clay.ui()(.{
+                .id = clay.id("ParentEntry"),
+            })({
+                text(.sm, "..");
+                onHover.get("parent").?.register({});
+            });
         });
     });
 }
@@ -182,14 +188,16 @@ fn OnHover(Param: type, onHoverFn: fn (PointerState, Param) anyerror!void) type 
 }
 
 fn onDirHover(state: PointerState, entry_index: usize) !void {
-    if (state == .pressed_this_frame) {
-        std.debug.print("{d}\n", .{entry_index});
-        try model.open_dir(entry_index);
-    }
+    if (state == .pressed_this_frame) try model.open_dir(entry_index);
+}
+
+fn onParentHover(state: PointerState, _: void) !void {
+    if (state == .pressed_this_frame) try model.open_parent_dir();
 }
 
 const onHover = std.StaticStringMap(type).initComptime(.{
     .{ "dir", OnHover(usize, onDirHover) },
+    .{ "parent", OnHover(void, onParentHover) },
 });
 
 fn resetHovers() void {

@@ -47,6 +47,13 @@ pub fn open_dir(model: *Model, entry_index: usize) !void {
     try model.entries.refresh(model.cwd.items);
 }
 
+pub fn open_parent_dir(model: *Model) !void {
+    const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
+    model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
+
+    try model.entries.refresh(model.cwd.items);
+}
+
 const Entries = struct {
     names: Bytes,
     list: std.MultiArrayList(Entry),
