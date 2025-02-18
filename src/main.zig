@@ -10,13 +10,14 @@ const log = std.log;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
-const PointerState = clay.Pointer.Data.InteractionState;
 
 const rl = @import("raylib");
 
 const Model = @import("Model.zig");
 
-var model: Model = undefined;
+pub var model: Model = undefined;
+
+const hover = @import("hover.zig");
 
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = if (debug) 1200 else 800;
@@ -74,6 +75,10 @@ fn text(comptime font_size: FontSize, contents: []const u8) void {
     comptime unreachable;
 }
 
+pub fn updateError(err: anyerror) void {
+    log.err("{s}\n", .{@errorName(err)});
+}
+
 pub fn main() !void {
     const arena = clay.createArena(alloc, clay.minMemorySize());
     defer alloc.free(@as([*]u8, @ptrCast(arena.memory))[0..arena.capacity]);
@@ -83,7 +88,7 @@ pub fn main() !void {
     clay.setDebugModeEnabled(debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
-    defer deinitHovers();
+    defer hover.deinit();
 
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
         const roboto_font = try rl.Font.fromMemory(".ttf", roboto, @intFromEnum(size), null);
@@ -102,8 +107,8 @@ fn render_frame() void {
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
     // setPointerStat will call all onHover events, updating the model
     clay.setPointerState(vector_conv(rl.getMousePosition()), rl.isMouseButtonDown(.left));
-    clay.updateScrollContainers(true, vector_conv(rl.getMouseWheelMoveV()), rl.getFrameTime());
-    defer resetHovers();
+    clay.updateScrollContainers(true, vector_conv(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 4)), rl.getFrameTime());
+    defer hover.reset();
 
     rl.beginDrawing();
     defer rl.endDrawing();
@@ -129,8 +134,19 @@ fn render_frame() void {
         text(.sm, model.cwd.items);
         clay.ui()(.{
             .id = clay.id("Entries"),
-            .layout = .{ .layout_direction = .top_to_bottom },
+            .layout = .{
+                .layout_direction = .top_to_bottom,
+                .sizing = .{ .width = .{ .type = .grow } },
+            },
+            .scroll = .{ .vertical = true },
         })({
+            clay.ui()(.{
+                .id = clay.id("ParentEntry"),
+                .layout = .{ .sizing = .{ .width = .{ .type = .grow } } },
+            })({
+                text(.sm, "..");
+                hover.on(.parent, {});
+            });
             const entries = model.entries.list.slice();
             for (0..entries.len) |i| {
                 clay.ui()(.{
@@ -138,72 +154,11 @@ fn render_frame() void {
                 })({
                     if (entries.items(.is_dir)[i]) {
                         text(.sm, "(dir)");
-                        onHover.get("dir").?.register(i);
+                        hover.on(.dir, i);
                     }
                     text(.sm, entries.items(.name)[i]);
                 });
             }
-            clay.ui()(.{
-                .id = clay.id("ParentEntry"),
-            })({
-                text(.sm, "..");
-                onHover.get("parent").?.register({});
-            });
         });
     });
-}
-
-fn updateError(err: anyerror) void {
-    log.err("{s}\n", .{@errorName(err)});
-}
-
-fn OnHover(Param: type, onHoverFn: fn (PointerState, Param) anyerror!void) type {
-    return struct {
-        var pool = heap.MemoryPool(Param).init(alloc);
-
-        fn register(param: Param) void {
-            const new_param = pool.create() catch |err| return updateError(err);
-            new_param.* = param;
-
-            clay.onHover(
-                Param,
-                new_param,
-                struct {
-                    inline fn onHover(element_id: clay.Element.Config.Id, pointer_data: clay.Pointer.Data, passed_param: *Param) void {
-                        _ = element_id;
-                        onHoverFn(pointer_data.state, passed_param.*) catch |err| return updateError(err);
-                    }
-                }.onHover,
-            );
-        }
-
-        fn reset() void {
-            _ = pool.reset(.retain_capacity);
-        }
-
-        fn deinit() void {
-            pool.deinit();
-        }
-    };
-}
-
-fn onDirHover(state: PointerState, entry_index: usize) !void {
-    if (state == .pressed_this_frame) try model.open_dir(entry_index);
-}
-
-fn onParentHover(state: PointerState, _: void) !void {
-    if (state == .pressed_this_frame) try model.open_parent_dir();
-}
-
-const onHover = std.StaticStringMap(type).initComptime(.{
-    .{ "dir", OnHover(usize, onDirHover) },
-    .{ "parent", OnHover(void, onParentHover) },
-});
-
-fn resetHovers() void {
-    inline for (onHover.values()) |Hover| Hover.reset();
-}
-
-fn deinitHovers() void {
-    inline for (onHover.values()) |Hover| Hover.deinit();
 }
