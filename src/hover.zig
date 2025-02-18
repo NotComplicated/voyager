@@ -1,5 +1,7 @@
 const std = @import("std");
 const heap = std.heap;
+const meta = std.meta;
+const enums = std.enums;
 
 const clay = @import("clay");
 const PointerState = clay.Pointer.Data.InteractionState;
@@ -10,72 +12,96 @@ const updateError = main.updateError;
 
 const model = &main.model;
 
-fn OnHover(Param: type, onHoverFn: fn (PointerState, Param) anyerror!void) type {
-    return struct {
-        var pool = heap.MemoryPool(Param).init(alloc);
+pub const EventParams = union(enum) {
+    entry: u32,
+    parent,
+};
+const Event = meta.Tag(EventParams);
 
-        fn register(param: Param) void {
-            const new_param = pool.create() catch |err| return updateError(err);
-            new_param.* = param;
+fn OnHover(
+    comptime event: Event,
+    onHoverFn: fn (PointerState, meta.TagPayload(EventParams, event)) anyerror!void,
+) type {
+    const Param = meta.TagPayload(EventParams, event);
+
+    return struct {
+        const hover_event = event;
+
+        const Context = struct {
+            pub fn hash(_: @This(), param: *Param) u64 {
+                var hasher = std.hash.Wyhash.init(0);
+                std.hash.autoHash(&hasher, param.*);
+                return hasher.final();
+            }
+
+            pub fn eql(_: @This(), lhs: *Param, rhs: *Param) bool {
+                return meta.eql(lhs.*, rhs.*);
+            }
+        };
+
+        var params_pool = heap.MemoryPool(Param).init(alloc);
+        var params_map = std.HashMapUnmanaged(*Param, void, Context, 80){};
+
+        fn register(event_param: EventParams) void {
+            var param = switch (event_param) {
+                inline event => |payload| payload,
+                else => unreachable,
+            };
+            const param_ptr = params_map.getKey(&param) orelse param_ptr: {
+                const new_param_ptr = params_pool.create() catch |err| return updateError(err);
+                errdefer params_pool.destroy(new_param_ptr);
+                new_param_ptr.* = param;
+                params_map.put(alloc, new_param_ptr, {}) catch |err| return updateError(err);
+                break :param_ptr new_param_ptr;
+            };
 
             clay.onHover(
                 Param,
-                new_param,
+                param_ptr,
                 struct {
-                    inline fn onHover(element_id: clay.Element.Config.Id, pointer_data: clay.Pointer.Data, passed_param: *Param) void {
-                        _ = element_id;
-                        onHoverFn(pointer_data.state, passed_param.*) catch |err| return updateError(err);
+                    inline fn onHover(_: clay.Element.Config.Id, data: clay.Pointer.Data, passed_param: *Param) void {
+                        onHoverFn(data.state, passed_param.*) catch |err| return updateError(err);
                     }
                 }.onHover,
             );
         }
 
-        fn reset() void {
-            _ = pool.reset(.retain_capacity);
-        }
-
         fn deinit() void {
-            pool.deinit();
+            params_pool.deinit();
+            params_map.deinit(alloc);
         }
     };
 }
 
-pub const Event = enum {
-    dir,
-    parent,
+const onHovers: [enums.values(Event).len]type = .{
+    OnHover(.entry, onDirHover),
+    OnHover(.parent, onParentHover),
 };
 
-const onHovers = .{
-    .{ .dir, OnHover(usize, onDirHover) },
-    .{ .parent, OnHover(void, onParentHover) },
-};
-
-pub fn on(comptime event: Event, param: anytype) void {
+pub fn on(param: EventParams) void {
     inline for (onHovers) |onHover| {
-        if (onHover.@"0" == event) {
-            const Expected = @typeInfo(@TypeOf(onHover.@"1".register)).Fn.params[0].type.?;
-            if (Expected != @TypeOf(param)) {
-                @compileError("Expected '" ++ @typeName(Expected) ++ "' param for event '" ++ @tagName(event) ++ "'");
-            }
-            onHover.@"1".register(param);
+        if (onHover.hover_event == meta.activeTag(param)) {
+            onHover.register(param);
             return;
         }
     }
     unreachable;
 }
 
-pub fn reset() void {
-    inline for (onHovers) |onHover| onHover.@"1".reset();
-}
-
 pub fn deinit() void {
-    inline for (onHovers) |onHover| onHover.@"1".deinit();
+    inline for (onHovers) |onHover| {
+        onHover.deinit();
+    }
 }
 
-fn onDirHover(state: PointerState, entry_index: usize) !void {
-    if (state == .pressed_this_frame) try model.open_dir(entry_index);
+fn onDirHover(state: PointerState, entry_index: u32) !void {
+    if (state == .pressed_this_frame) {
+        try model.open_dir(entry_index);
+    }
 }
 
 fn onParentHover(state: PointerState, _: void) !void {
-    if (state == .pressed_this_frame) try model.open_parent_dir();
+    if (state == .pressed_this_frame) {
+        try model.open_parent_dir();
+    }
 }

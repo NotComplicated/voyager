@@ -82,9 +82,9 @@ const Entries = struct {
             try entries.names.appendSlice(alloc, entry.name);
             const is_dir = entry.kind == .directory;
             const metadata = if (is_dir)
-                try (try dir.openDir(entry.name, .{ .access_sub_paths = false })).metadata()
+                try (dir.openDir(entry.name, .{ .access_sub_paths = false }) catch continue).metadata()
             else
-                try (try dir.openFile(entry.name, .{})).metadata();
+                try (dir.openFile(entry.name, .{}) catch continue).metadata();
 
             try entries.list.append(
                 alloc,
@@ -105,7 +105,12 @@ pub fn format(model: *Model, comptime fmt_string: []const u8, options: fmt.Forma
     _ = fmt_string;
     _ = options;
     try fmt.format(writer, "cwd: {s}\nitems:", .{model.cwd.items});
-    for (model.entries.list.items(.name)) |name| {
-        try fmt.format(writer, "\n\t{s}", .{name});
+    const entries = model.entries.list.slice();
+    for (0..entries.len) |i| {
+        try fmt.format(writer, "\n\t{s} {s} {d}", .{
+            entries.items(.name)[i],
+            if (entries.items(.is_dir)[i]) "(dir)" else "",
+            i,
+        });
     }
 }

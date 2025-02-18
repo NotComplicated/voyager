@@ -105,10 +105,9 @@ pub fn main() !void {
 
 fn render_frame() void {
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
-    // setPointerStat will call all onHover events, updating the model
+    // setPointerState will call all hover events, updating the model
     clay.setPointerState(vector_conv(rl.getMousePosition()), rl.isMouseButtonDown(.left));
     clay.updateScrollContainers(true, vector_conv(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 4)), rl.getFrameTime());
-    defer hover.reset();
 
     rl.beginDrawing();
     defer rl.endDrawing();
@@ -145,16 +144,16 @@ fn render_frame() void {
                 .layout = .{ .sizing = .{ .width = .{ .type = .grow } } },
             })({
                 text(.sm, "..");
-                hover.on(.parent, {});
+                hover.on(.parent);
             });
             const entries = model.entries.list.slice();
             for (0..entries.len) |i| {
                 clay.ui()(.{
                     .id = clay.idi("Entry", @intCast(i)),
                 })({
+                    hover.on(.{ .entry = @intCast(i) });
                     if (entries.items(.is_dir)[i]) {
                         text(.sm, "(dir)");
-                        hover.on(.dir, i);
                     }
                     text(.sm, entries.items(.name)[i]);
                 });
