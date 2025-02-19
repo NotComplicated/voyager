@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     if (target.result.os.tag == .windows) {
+        exe.linkSystemLibrary("dwmapi");
         exe.subsystem = if (console) .Console else .Windows;
     }
 

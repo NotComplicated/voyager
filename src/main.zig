@@ -9,6 +9,7 @@ const mem = std.mem;
 const enums = std.enums;
 const fs = std.fs;
 const log = std.log;
+const os = std.os;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -22,6 +23,8 @@ pub var model: Model = undefined;
 const hover = @import("hover.zig");
 
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
+const title_color: os.windows.DWORD = 0x002e1e1e;
+const dwma_caption_color = 35;
 const width = if (debug) 1200 else 800;
 const height = 480;
 const mem_scale = 5;
@@ -85,6 +88,13 @@ pub fn updateError(err: anyerror) void {
     log.err("{s}\n", .{@errorName(err)});
 }
 
+extern fn DwmSetWindowAttribute(
+    window: os.windows.HWND,
+    attr: os.windows.DWORD,
+    pvAttr: os.windows.LPCVOID,
+    cbAttr: os.windows.DWORD,
+) os.windows.HRESULT;
+
 pub fn main() !void {
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
@@ -96,6 +106,15 @@ pub fn main() !void {
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
     defer hover.deinit();
+
+    if (windows) {
+        _ = DwmSetWindowAttribute(
+            @ptrCast(rl.getWindowHandle()),
+            dwma_caption_color,
+            &title_color,
+            @sizeOf(@TypeOf(title_color)),
+        );
+    }
 
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
         const roboto_font = try rl.Font.fromMemory(".ttf", roboto, @intFromEnum(size), null);
