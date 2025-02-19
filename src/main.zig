@@ -53,6 +53,9 @@ const FontSize = enum(u16) {
     xl = 48,
 };
 
+const icon_data = @embedFile("resources/voyager.bmp");
+const icon_ext = ".bmp";
+
 fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }
@@ -106,6 +109,10 @@ pub fn main() !void {
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
     defer hover.deinit();
+
+    const icon = try rl.loadImageFromMemory(icon_ext, icon_data);
+    defer rl.unloadImage(icon);
+    rl.setWindowIcon(icon);
 
     if (windows) {
         _ = DwmSetWindowAttribute(
