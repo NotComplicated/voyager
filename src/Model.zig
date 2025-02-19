@@ -5,6 +5,8 @@ const heap = std.heap;
 const fmt = std.fmt;
 const mem = std.mem;
 
+const rl = @import("raylib");
+
 const main = @import("main.zig");
 const alloc = main.alloc;
 const debug = main.debug;
@@ -44,17 +46,23 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
-pub fn select(model: *Model, entry_index: usize) !void {
+pub fn select(model: *Model, entry_index: usize, open_entry: bool) !void {
     const selected = model.entries.list.items(.selected);
     if (selected.len <= entry_index) return;
 
     const now = time.milliTimestamp();
     if (selected[entry_index]) |selected_ts| {
-        if ((now - selected_ts) < double_click) {
+        if (open_entry and (now - selected_ts) < double_click) {
             return model.open(entry_index);
         }
     }
-    for (selected) |*unselect| unselect.* = null;
+
+    if (rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift)) {
+        // TODO bulk selection
+    }
+    if (!rl.isKeyDown(.left_control) and !rl.isKeyDown(.right_control)) {
+        for (selected) |*unselect| unselect.* = null;
+    }
     selected[entry_index] = now;
 }
 

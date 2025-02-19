@@ -136,12 +136,22 @@ fn render_frame() void {
             const Selected = meta.Elem(@TypeOf(selected));
             if (mem.indexOfNone(Selected, selected, &[_]Selected{null})) |index| {
                 if (key == .up and index > 0) {
-                    model.select(index - 1) catch |err| updateError(err);
-                } else if (key == .down and index + 1 < selected.len) {
-                    model.select(index + 1) catch |err| updateError(err);
+                    model.select(index - 1, false) catch |err| updateError(err);
+                } else if (key == .down) {
+                    model.select(index + 1, false) catch |err| updateError(err);
                 }
             } else if (key == .down) {
-                model.select(0) catch |err| updateError(err);
+                model.select(0, false) catch |err| updateError(err);
+            }
+        },
+        .home => {
+            model.select(0, false) catch |err| updateError(err);
+            clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
+        },
+        .end => {
+            if (model.entries.list.len > 0) {
+                model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
+                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
             }
         },
         .enter => {
@@ -151,8 +161,11 @@ fn render_frame() void {
                 }
             }
         },
+        .period => _ = model.try_jump('.'),
         else => {},
     }
+
+    // jump to entries when typing letters/numbers
     const key_int = @intFromEnum(key);
     if (65 <= key_int and key_int <= 90) {
         if (!model.try_jump(@intCast(key_int))) {
@@ -166,6 +179,9 @@ fn render_frame() void {
 
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), raylib_alloc);
+
+    var cursor = rl.MouseCursor.default;
+    defer rl.setMouseCursor(cursor);
 
     clay.ui()(.{
         .id = clay.id("Screen"),
@@ -217,6 +233,7 @@ fn render_frame() void {
                         .corner_radius = clay.CornerRadius.all(3),
                     },
                 })({
+                    if (clay.hovered()) cursor = .pointing_hand;
                     hover.on(.{ .entry = @intCast(i) });
                     clay.ui()(.{
                         .id = clay.idi("EntryName", @intCast(i)),
