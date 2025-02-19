@@ -95,7 +95,6 @@ pub fn deinit() void {
 }
 
 fn onEntryHover(state: PointerState, entry_index: u32) !void {
-    model.hover_entry(entry_index);
     if (state == .pressed_this_frame) {
         try model.select(entry_index);
     }

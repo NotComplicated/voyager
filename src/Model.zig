@@ -25,7 +25,6 @@ pub fn init() !Model {
         .cwd = try Bytes.initCapacity(alloc, 1024),
         .entries = .{
             .names = try Bytes.initCapacity(alloc, 1024),
-            .hovered = null,
             .list = .{},
         },
     };
@@ -45,48 +44,56 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
-pub fn hover_entry(model: *Model, entry_index: usize) void {
-    model.entries.hovered = entry_index;
-}
-
-// TODO how to call this?
-pub fn exit_hover_entry(model: *Model) void {
-    model.entries.hovered = null;
-}
-
 pub fn select(model: *Model, entry_index: usize) !void {
-    const entries = model.entries.list.slice();
+    const selected = model.entries.list.items(.selected);
+    if (selected.len <= entry_index) return;
+
     const now = time.milliTimestamp();
-    if (entries.items(.selected)[entry_index]) |selected| {
-        if ((now - selected) < double_click) {
-            const name = model.entries.get_name(entries.items(.name_indices)[entry_index]);
-            if (entries.items(.is_dir)[entry_index]) {
-                try model.cwd.append(alloc, fs.path.sep);
-                try model.cwd.appendSlice(alloc, name);
-
-                try model.entries.refresh(model.cwd.items);
-            } else {
-                const path = try mem.join(alloc, fs.path.sep_str, &[_][]const u8{ model.cwd.items, name });
-                defer alloc.free(path);
-                const invoker = if (windows)
-                    .{ "cmd", "/c", "start" }
-                else
-                    @panic("OS not yet supported");
-                const argv = invoker ++ .{path};
-
-                var child = std.process.Child.init(&argv, alloc);
-                child.stdin_behavior = .Ignore;
-                child.stdout_behavior = .Ignore;
-                child.stderr_behavior = .Ignore;
-                child.cwd = model.cwd.items;
-                _ = try child.spawnAndWait();
-            }
-            return;
+    if (selected[entry_index]) |selected_ts| {
+        if ((now - selected_ts) < double_click) {
+            return model.open(entry_index);
         }
     }
-    const selected = entries.items(.selected);
     for (selected) |*unselect| unselect.* = null;
     selected[entry_index] = now;
+}
+
+pub fn try_jump(model: *Model, char: u8) bool {
+    const selected = model.entries.list.items(.selected);
+    for (model.entries.list.items(.name_indices), 0..) |name_indices, index| {
+        const name = model.entries.get_name(name_indices);
+        if (name[0] == char) {
+            for (selected) |*unselect| unselect.* = null;
+            selected[index] = time.milliTimestamp();
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn open(model: *Model, entry_index: usize) !void {
+    const name = model.entries.get_name(model.entries.list.items(.name_indices)[entry_index]);
+    if (model.entries.list.items(.is_dir)[entry_index]) {
+        try model.cwd.append(alloc, fs.path.sep);
+        try model.cwd.appendSlice(alloc, name);
+
+        try model.entries.refresh(model.cwd.items);
+    } else {
+        const path = try mem.join(alloc, fs.path.sep_str, &[_][]const u8{ model.cwd.items, name });
+        defer alloc.free(path);
+        const invoker = if (windows)
+            .{ "cmd", "/c", "start" }
+        else
+            @panic("OS not yet supported");
+        const argv = invoker ++ .{path};
+
+        var child = std.process.Child.init(&argv, alloc);
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Ignore;
+        child.stderr_behavior = .Ignore;
+        child.cwd = model.cwd.items;
+        _ = try child.spawnAndWait();
+    }
 }
 
 pub fn open_parent_dir(model: *Model) !void {
@@ -98,7 +105,6 @@ pub fn open_parent_dir(model: *Model) !void {
 
 const Entries = struct {
     names: Bytes,
-    hovered: ?usize,
     list: std.MultiArrayList(Entry),
 
     const Entry = struct {

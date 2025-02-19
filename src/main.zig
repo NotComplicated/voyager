@@ -4,6 +4,7 @@ pub const windows = builtin.os.tag == .windows;
 
 const std = @import("std");
 const heap = std.heap;
+const meta = std.meta;
 const mem = std.mem;
 const enums = std.enums;
 const fs = std.fs;
@@ -118,8 +119,49 @@ fn render_frame() void {
     rl.beginDrawing();
     defer rl.endDrawing();
 
-    if (debug and rl.isMouseButtonPressed(.left)) {
+    if (debug and rl.isMouseButtonPressed(.middle)) {
         log.debug("{any}\n", .{&model});
+    }
+    if (rl.isMouseButtonPressed(.side)) {
+        model.open_parent_dir() catch |err| updateError(err);
+    }
+
+    const key = rl.getKeyPressed();
+    switch (key) {
+        .escape => {
+            model.open_parent_dir() catch |err| updateError(err);
+        },
+        .up, .down => {
+            const selected = model.entries.list.items(.selected);
+            const Selected = meta.Elem(@TypeOf(selected));
+            if (mem.indexOfNone(Selected, selected, &[_]Selected{null})) |index| {
+                if (key == .up and index > 0) {
+                    model.select(index - 1) catch |err| updateError(err);
+                } else if (key == .down and index + 1 < selected.len) {
+                    model.select(index + 1) catch |err| updateError(err);
+                }
+            } else if (key == .down) {
+                model.select(0) catch |err| updateError(err);
+            }
+        },
+        .enter => {
+            for (model.entries.list.items(.selected), 0..) |selected, index| {
+                if (selected) |_| {
+                    model.open(index) catch |err| updateError(err);
+                }
+            }
+        },
+        else => {},
+    }
+    const key_int = @intFromEnum(key);
+    if (65 <= key_int and key_int <= 90) {
+        if (!model.try_jump(@intCast(key_int))) {
+            _ = model.try_jump(@intCast(key_int + 32));
+        }
+    } else if (48 <= key_int and key_int <= 57) {
+        _ = model.try_jump(@intCast(key_int - 48));
+    } else if (320 <= key_int and key_int <= 329) {
+        _ = model.try_jump(@intCast(key_int - 320));
     }
 
     clay.beginLayout();
@@ -158,8 +200,9 @@ fn render_frame() void {
             });
             const entries = model.entries.list.slice();
             for (0..entries.len) |i| {
+                const id = clay.idi("Entry", @intCast(i));
                 clay.ui()(.{
-                    .id = clay.idi("Entry", @intCast(i)),
+                    .id = id,
                     .layout = .{
                         .padding = clay.Padding.vertical(2),
                         .sizing = .{ .width = .{ .type = .grow } },
@@ -167,7 +210,7 @@ fn render_frame() void {
                     .rectangle = .{
                         .color = if (entries.items(.selected)[i] != null)
                             catppuccin.selected
-                        else if (model.entries.hovered == i)
+                        else if (clay.pointerOver(id))
                             catppuccin.hovered
                         else
                             catppuccin.base,
