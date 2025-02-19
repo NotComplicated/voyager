@@ -74,7 +74,7 @@ fn OnHover(
 }
 
 const onHovers: [enums.values(Event).len]type = .{
-    OnHover(.entry, onDirHover),
+    OnHover(.entry, onEntryHover),
     OnHover(.parent, onParentHover),
 };
 
@@ -94,9 +94,10 @@ pub fn deinit() void {
     }
 }
 
-fn onDirHover(state: PointerState, entry_index: u32) !void {
+fn onEntryHover(state: PointerState, entry_index: u32) !void {
+    model.hover_entry(entry_index);
     if (state == .pressed_this_frame) {
-        try model.open_dir(entry_index);
+        try model.select(entry_index);
     }
 }
 

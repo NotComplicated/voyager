@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 pub const debug = builtin.mode == .Debug;
+pub const windows = builtin.os.tag == .windows;
 
 const std = @import("std");
 const heap = std.heap;
@@ -22,6 +23,8 @@ const hover = @import("hover.zig");
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = if (debug) 1200 else 800;
 const height = 480;
+const mem_scale = 5;
+const max_elem_count = mem_scale * 8192;
 
 var logging_page_alloc = heap.LoggingAllocator(.debug, .info).init(heap.page_allocator);
 pub const alloc = logging_page_alloc.allocator();
@@ -53,6 +56,8 @@ fn rgb(r: u8, g: u8, b: u8) clay.Color {
 const catppuccin = .{
     .text = rgb(205, 214, 244),
     .base = rgb(30, 30, 46),
+    .hovered = rgb(43, 43, 58),
+    .selected = rgb(59, 59, 71),
     .mantle = rgb(24, 24, 37),
 };
 
@@ -80,11 +85,12 @@ pub fn updateError(err: anyerror) void {
 }
 
 pub fn main() !void {
-    const arena = clay.createArena(alloc, clay.minMemorySize());
+    clay.setMaxElementCount(max_elem_count);
+    const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
     defer alloc.free(@as([*]u8, @ptrCast(arena.memory))[0..arena.capacity]);
 
-    clay.setMeasureTextFunction(renderer.measureText);
     _ = clay.initialize(arena, .{ .width = width, .height = height }, .{});
+    clay.setMeasureTextFunction(renderer.measureText);
     clay.setDebugModeEnabled(debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
@@ -135,13 +141,17 @@ fn render_frame() void {
             .id = clay.id("Entries"),
             .layout = .{
                 .layout_direction = .top_to_bottom,
+                .padding = clay.Padding.all(16),
                 .sizing = .{ .width = .{ .type = .grow } },
+                .child_gap = 4,
             },
             .scroll = .{ .vertical = true },
         })({
             clay.ui()(.{
                 .id = clay.id("ParentEntry"),
-                .layout = .{ .sizing = .{ .width = .{ .type = .grow } } },
+                .layout = .{
+                    .sizing = .{ .width = .{ .type = .grow } },
+                },
             })({
                 text(.sm, "..");
                 hover.on(.parent);
@@ -150,12 +160,32 @@ fn render_frame() void {
             for (0..entries.len) |i| {
                 clay.ui()(.{
                     .id = clay.idi("Entry", @intCast(i)),
+                    .layout = .{
+                        .padding = clay.Padding.vertical(2),
+                        .sizing = .{ .width = .{ .type = .grow } },
+                    },
+                    .rectangle = .{
+                        .color = if (entries.items(.selected)[i] != null)
+                            catppuccin.selected
+                        else if (model.entries.hovered == i)
+                            catppuccin.hovered
+                        else
+                            catppuccin.base,
+                        .corner_radius = clay.CornerRadius.all(3),
+                    },
                 })({
                     hover.on(.{ .entry = @intCast(i) });
-                    if (entries.items(.is_dir)[i]) {
-                        text(.sm, "(dir)");
-                    }
-                    text(.sm, entries.items(.name)[i]);
+                    clay.ui()(.{
+                        .id = clay.idi("EntryName", @intCast(i)),
+                        .layout = .{
+                            .padding = clay.Padding.all(4),
+                        },
+                    })({
+                        if (entries.items(.is_dir)[i]) {
+                            text(.sm, "(dir) ");
+                        }
+                        text(.sm, model.entries.get_name(entries.items(.name_indices)[i]));
+                    });
                 });
             }
         });
