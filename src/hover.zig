@@ -9,15 +9,20 @@ const PointerState = clay.Pointer.Data.InteractionState;
 const main = @import("main.zig");
 const alloc = main.alloc;
 const updateError = main.updateError;
-
 const model = &main.model;
 
+const Model = @import("Model.zig");
+
 pub const EventParams = union(enum) {
-    entry: u32,
+    entry: struct { Model.Entries.Kind, Model.Index },
     parent,
 };
 const Event = meta.Tag(EventParams);
 
+// This cursed function tries to get around the clay limitation where
+// Clay_OnHover only accepts an *anyopaque with an unpredictable lifetime.
+// Instead of only passing static values, we use MemoryPool to persistently
+// store params and HashMap to recycle previously created params.
 fn OnHover(
     comptime event: Event,
     onHoverFn: fn (PointerState, meta.TagPayload(EventParams, event)) anyerror!void,
@@ -27,6 +32,7 @@ fn OnHover(
     return struct {
         const hover_event = event;
 
+        // Like AutoContext, but dereferences pointers.
         const Context = struct {
             pub fn hash(_: @This(), param: *Param) u64 {
                 var hasher = std.hash.Wyhash.init(0);
@@ -94,9 +100,10 @@ pub fn deinit() void {
     }
 }
 
-fn onEntryHover(state: PointerState, entry_index: u32) !void {
+fn onEntryHover(state: PointerState, data: struct { Model.Entries.Kind, Model.Index }) !void {
+    const kind, const index = data;
     if (state == .pressed_this_frame) {
-        try model.select(entry_index, true);
+        try model.select(kind, index, .try_open);
     }
 }
 

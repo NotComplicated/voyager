@@ -23,12 +23,10 @@ pub var model: Model = undefined;
 const hover = @import("hover.zig");
 
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
-const title_color: os.windows.DWORD = 0x002e1e1e;
-const dwma_caption_color = 35;
-const width = if (debug) 1200 else 800;
+const width = 800 + if (debug) 400 else 0;
 const height = 480;
 const mem_scale = 5;
-const max_elem_count = mem_scale * 8192;
+const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var logging_page_alloc = heap.LoggingAllocator(.debug, .info).init(heap.page_allocator);
 pub const alloc = logging_page_alloc.allocator();
@@ -68,6 +66,12 @@ const catppuccin = .{
     .mantle = rgb(24, 24, 37),
 };
 
+const title_color =
+    @as(os.windows.DWORD, @intFromFloat(catppuccin.base.r)) +
+    (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.g)) << 8) +
+    (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.b)) << 16);
+const dwma_caption_color = 35;
+
 fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
@@ -88,7 +92,11 @@ fn text(comptime font_size: FontSize, contents: []const u8) void {
 }
 
 pub fn updateError(err: anyerror) void {
-    log.err("{s}\n", .{@errorName(err)});
+    const err_str = switch (err) {
+        Model.Error.OsNotSupported => "OS not yet supported",
+        else => @errorName(err),
+    };
+    log.err("{s}\n", .{err_str}); // TODO replace with graphical error modal
 }
 
 extern fn DwmSetWindowAttribute(
@@ -157,50 +165,69 @@ fn render_frame() void {
         .escape => {
             model.open_parent_dir() catch |err| updateError(err);
         },
-        .up, .down => {
-            const selected = model.entries.list.items(.selected);
-            const Selected = meta.Elem(@TypeOf(selected));
-            if (mem.indexOfNone(Selected, selected, &[_]Selected{null})) |index| {
-                if (key == .up and index > 0) {
-                    model.select(index - 1, false) catch |err| updateError(err);
-                } else if (key == .down) {
-                    model.select(index + 1, false) catch |err| updateError(err);
+        .up, .down => updown: {
+            for (Model.Entries.kinds()) |kind| {
+                var sorted = model.entries.sorted(kind, &.{.selected});
+                var sorted_index: Model.Index = 0;
+                while (sorted.next()) |entry| : (sorted_index += 1) {
+                    if (entry.selected != null) {
+                        // TODO handle going from one kind to the other
+                        // TODO how to get next/prev?
+                        // if (key == .up and sorted_index > 0) {
+                        //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
+                        //     break :updown;
+                        // } else if (key == .down and sort_index < sort_list.len - 1) {
+                        //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
+                        //     break :updown;
+                        // }
+                        break :updown;
+                    }
                 }
-            } else if (key == .down) {
-                model.select(0, false) catch |err| updateError(err);
+            }
+            if (key == .down) {
+                // TODO bounds check the 0
+                // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+                //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+                //     else => updateError(err),
+                // };
+                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
             }
         },
+        // TODO select_top() / select_bottom() ?
         .home => {
-            model.select(0, false) catch |err| updateError(err);
+            // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+            //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+            //     else => updateError(err),
+            // };
             clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
         },
         .end => {
-            if (model.entries.list.len > 0) {
-                model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
-                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
-            }
+            // TODO
+            // if (model.entries.list.len > 0) {
+            //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
+            // }
+            clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
         },
         .enter => {
-            for (model.entries.list.items(.selected), 0..) |selected, index| {
-                if (selected) |_| {
-                    model.open(index) catch |err| updateError(err);
-                }
+            // TODO also support opening dirs?
+            for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
+                if (selected) |_| model.open_file(@intCast(index)) catch |err| updateError(err);
             }
         },
-        .period => _ = model.try_jump('.'),
+        .period => _ = model.entries.try_jump('.'),
         else => {},
     }
 
     // jump to entries when typing letters/numbers
     const key_int = @intFromEnum(key);
     if (65 <= key_int and key_int <= 90) {
-        if (!model.try_jump(@intCast(key_int))) {
-            _ = model.try_jump(@intCast(key_int + 32));
+        if (model.entries.try_jump(@intCast(key_int)) == .not_found) {
+            _ = model.entries.try_jump(@intCast(key_int + 32));
         }
     } else if (48 <= key_int and key_int <= 57) {
-        _ = model.try_jump(@intCast(key_int - 48));
+        _ = model.entries.try_jump(@intCast(key_int - 48));
     } else if (320 <= key_int and key_int <= 329) {
-        _ = model.try_jump(@intCast(key_int - 320));
+        _ = model.entries.try_jump(@intCast(key_int - 320));
     }
 
     clay.beginLayout();
@@ -240,39 +267,42 @@ fn render_frame() void {
                 text(.sm, "..");
                 hover.on(.parent);
             });
-            const entries = model.entries.list.slice();
-            for (0..entries.len) |i| {
-                const id = clay.idi("Entry", @intCast(i));
-                clay.ui()(.{
-                    .id = id,
-                    .layout = .{
-                        .padding = clay.Padding.vertical(2),
-                        .sizing = .{ .width = .{ .type = .grow } },
-                    },
-                    .rectangle = .{
-                        .color = if (entries.items(.selected)[i] != null)
-                            catppuccin.selected
-                        else if (clay.pointerOver(id))
-                            catppuccin.hovered
-                        else
-                            catppuccin.base,
-                        .corner_radius = clay.CornerRadius.all(3),
-                    },
-                })({
-                    if (clay.hovered()) cursor = .pointing_hand;
-                    hover.on(.{ .entry = @intCast(i) });
+            inline for (comptime Model.Entries.kinds()) |kind| {
+                var sorted = model.entries.sorted(kind, &.{ .name, .selected });
+                var sorted_index: Model.Index = 0;
+                while (sorted.next()) |entry| : (sorted_index += 1) {
+                    const id = clay.idi(@tagName(kind) ++ "Entry", entry.index);
                     clay.ui()(.{
-                        .id = clay.idi("EntryName", @intCast(i)),
+                        .id = id,
                         .layout = .{
-                            .padding = clay.Padding.all(4),
+                            .padding = clay.Padding.vertical(2),
+                            .sizing = .{ .width = .{ .type = .grow } },
+                        },
+                        .rectangle = .{
+                            .color = if (entry.selected) |_|
+                                catppuccin.selected
+                            else if (clay.pointerOver(id))
+                                catppuccin.hovered
+                            else
+                                catppuccin.base,
+                            .corner_radius = clay.CornerRadius.all(3),
                         },
                     })({
-                        if (entries.items(.is_dir)[i]) {
-                            text(.sm, "(dir) ");
-                        }
-                        text(.sm, model.entries.get_name(entries.items(.name_indices)[i]));
+                        if (clay.hovered()) cursor = .pointing_hand;
+                        hover.on(.{ .entry = .{ kind, entry.index } });
+                        clay.ui()(.{
+                            .id = clay.idi(@tagName(kind) ++ "EntryName", entry.index),
+                            .layout = .{
+                                .padding = clay.Padding.all(4),
+                            },
+                        })({
+                            if (kind == .dir) {
+                                text(.sm, "(dir) ");
+                            }
+                            text(.sm, entry.name);
+                        });
                     });
-                });
+                }
             }
         });
     });
