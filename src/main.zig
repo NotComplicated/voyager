@@ -10,6 +10,7 @@ const enums = std.enums;
 const fs = std.fs;
 const log = std.log;
 const os = std.os;
+const process = std.process;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -97,6 +98,7 @@ pub fn updateError(err: anyerror) void {
         else => @errorName(err),
     };
     log.err("{s}\n", .{err_str}); // TODO replace with graphical error modal
+    if (err == error.OutOfMemory) process.abort();
 }
 
 extern fn DwmSetWindowAttribute(
