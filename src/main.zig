@@ -11,6 +11,7 @@ const fs = std.fs;
 const log = std.log;
 const os = std.os;
 const process = std.process;
+const ascii = std.ascii;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -24,8 +25,8 @@ pub var model: Model = undefined;
 const hover = @import("hover.zig");
 
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
-const width = 800 + if (debug) 400 else 0;
-const height = 480;
+const width = 1000 + if (debug) 400 else 0;
+const height = 600;
 const mem_scale = 5;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
@@ -46,7 +47,7 @@ const rl_config = rl.ConfigFlags{
 const roboto = @embedFile("resources/roboto.ttf");
 
 const FontSize = enum(u16) {
-    sm = 24,
+    sm = 20,
     md = 32,
     lg = 40,
     xl = 48,
@@ -61,6 +62,7 @@ fn rgb(r: u8, g: u8, b: u8) clay.Color {
 
 const catppuccin = .{
     .text = rgb(205, 214, 244),
+    .nav = rgb(43, 43, 58),
     .base = rgb(30, 30, 46),
     .hovered = rgb(43, 43, 58),
     .selected = rgb(59, 59, 71),
@@ -72,6 +74,8 @@ const title_color =
     (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.g)) << 8) +
     (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.b)) << 16);
 const dwma_caption_color = 35;
+
+const rounded = clay.CornerRadius.all(6);
 
 fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
@@ -249,63 +253,109 @@ fn render_frame() void {
         },
         .rectangle = .{ .color = catppuccin.base },
     })({
-        text(.sm, model.cwd.items);
         clay.ui()(.{
-            .id = clay.id("Entries"),
+            .id = clay.id("NavBar"),
             .layout = .{
-                .layout_direction = .top_to_bottom,
-                .padding = clay.Padding.all(16),
+                .padding = clay.Padding.all(10),
                 .sizing = .{ .width = .{ .type = .grow } },
-                .child_gap = 4,
             },
-            .scroll = .{ .vertical = true },
         })({
             clay.ui()(.{
-                .id = clay.id("ParentEntry"),
+                .id = clay.id("CurrentDir"),
                 .layout = .{
+                    .padding = clay.Padding.all(4),
                     .sizing = .{ .width = .{ .type = .grow } },
                 },
+                .rectangle = .{ .color = catppuccin.nav, .corner_radius = rounded },
             })({
-                text(.sm, "..");
-                hover.on(.parent);
+                text(.sm, model.cwd.items);
             });
-            inline for (comptime Model.Entries.kinds()) |kind| {
-                var sorted = model.entries.sorted(kind, &.{ .name, .selected });
-                var sorted_index: Model.Index = 0;
-                while (sorted.next()) |entry| : (sorted_index += 1) {
-                    const id = clay.idi(@tagName(kind) ++ "Entry", entry.index);
+        });
+        clay.ui()(.{
+            .id = clay.id("Content"),
+            .layout = .{
+                .sizing = clay.Element.Sizing.percent(100),
+            },
+            .rectangle = .{ .color = catppuccin.mantle },
+        })({
+            clay.ui()(.{
+                .id = clay.id("Shortcuts"),
+                .layout = .{
+                    .layout_direction = .top_to_bottom,
+                    .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(300) },
+                },
+            })({
+                text(.sm, "Shortcuts");
+            });
+            clay.ui()(.{
+                .id = clay.id("EntriesContainer"),
+                .layout = .{
+                    .padding = clay.Padding.vertical(10),
+                    .sizing = clay.Element.Sizing.percent(100),
+                },
+            })({
+                clay.ui()(.{
+                    .id = clay.id("Entries"),
+                    .layout = .{
+                        .layout_direction = .top_to_bottom,
+                        .padding = clay.Padding.all(16),
+                        .sizing = clay.Element.Sizing.percent(100),
+                        .child_gap = 4,
+                    },
+                    .scroll = .{ .vertical = true },
+                    .rectangle = .{ .color = catppuccin.base, .corner_radius = rounded },
+                })({
                     clay.ui()(.{
-                        .id = id,
+                        .id = clay.id("ParentEntry"),
                         .layout = .{
-                            .padding = clay.Padding.vertical(2),
                             .sizing = .{ .width = .{ .type = .grow } },
                         },
-                        .rectangle = .{
-                            .color = if (entry.selected) |_|
-                                catppuccin.selected
-                            else if (clay.pointerOver(id))
-                                catppuccin.hovered
-                            else
-                                catppuccin.base,
-                            .corner_radius = clay.CornerRadius.all(3),
-                        },
                     })({
-                        if (clay.hovered()) cursor = .pointing_hand;
-                        hover.on(.{ .entry = .{ kind, entry.index } });
-                        clay.ui()(.{
-                            .id = clay.idi(@tagName(kind) ++ "EntryName", entry.index),
-                            .layout = .{
-                                .padding = clay.Padding.all(4),
-                            },
-                        })({
-                            if (kind == .dir) {
-                                text(.sm, "(dir) ");
-                            }
-                            text(.sm, entry.name);
-                        });
+                        text(.sm, "..");
+                        hover.on(.parent);
                     });
-                }
-            }
+                    inline for (comptime Model.Entries.kinds()) |kind| {
+                        var kind_name = @tagName(kind).*;
+                        kind_name[0] = ascii.toUpper(kind_name[0]);
+
+                        var sorted = model.entries.sorted(kind, &.{ .name, .selected });
+                        var sorted_index: Model.Index = 0;
+                        while (sorted.next()) |entry| : (sorted_index += 1) {
+                            const id = clay.idi(kind_name ++ "Entry", entry.index);
+                            clay.ui()(.{
+                                .id = id,
+                                .layout = .{
+                                    .padding = clay.Padding.vertical(2),
+                                    .sizing = .{ .width = .{ .type = .grow } },
+                                },
+                                .rectangle = .{
+                                    .color = if (entry.selected) |_|
+                                        catppuccin.selected
+                                    else if (clay.pointerOver(id))
+                                        catppuccin.hovered
+                                    else
+                                        catppuccin.base,
+                                    .corner_radius = rounded,
+                                },
+                            })({
+                                if (clay.hovered()) cursor = .pointing_hand;
+                                hover.on(.{ .entry = .{ kind, entry.index } });
+                                clay.ui()(.{
+                                    .id = clay.idi(kind_name ++ "EntryName", entry.index),
+                                    .layout = .{
+                                        .padding = clay.Padding.all(4),
+                                    },
+                                })({
+                                    if (kind == .dir) {
+                                        text(.sm, "(dir) ");
+                                    }
+                                    text(.sm, entry.name);
+                                });
+                            });
+                        }
+                    }
+                });
+            });
         });
     });
 }
