@@ -53,7 +53,7 @@ pub fn init() !Model {
     defer alloc.free(path);
     try model.cwd.appendSlice(alloc, path);
 
-    try model.entries.refresh(path);
+    try model.entries.load_entries(path);
 
     return model;
 }
@@ -90,13 +90,13 @@ pub fn open_dir(model: *Model, index: Index) Error!void {
     const name = model.entries.names.items[name_start..name_end];
     try model.cwd.append(alloc, fs.path.sep);
     try model.cwd.appendSlice(alloc, name);
-    try model.entries.refresh(model.cwd.items);
+    try model.entries.load_entries(model.cwd.items);
 }
 
 pub fn open_parent_dir(model: *Model) Error!void {
     const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
     model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
-    try model.entries.refresh(model.cwd.items);
+    try model.entries.load_entries(model.cwd.items);
 }
 
 pub fn open_file(model: *const Model, index: Index) Error!void {
@@ -205,7 +205,7 @@ pub const Entries = struct {
         return enums.values(Kind);
     }
 
-    fn refresh(entries: *Entries, cwd: []const u8) Error!void {
+    pub fn load_entries(entries: *Entries, cwd: []const u8) Error!void {
         for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
         entries.names.clearRetainingCapacity();
         for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.clearRetainingCapacity();

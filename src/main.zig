@@ -58,6 +58,8 @@ const FontSize = enum(u16) {
 const image_filenames = .{
     .icon = "voyager.bmp",
     .arrow_up = "arrow-up.png",
+    .refresh = "refresh.png",
+    .folder = "folder.png",
 };
 var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;
 
@@ -281,7 +283,7 @@ fn render_frame() void {
         })({
             const nav_size = 30;
 
-            const id = clay.id("ToParent");
+            var id = clay.id("ToParent");
             clay.ui()(.{
                 .id = id,
                 .layout = .{
@@ -300,10 +302,29 @@ fn render_frame() void {
                 hover.on(.parent);
             });
 
+            id = clay.id("Refresh");
+            clay.ui()(.{
+                .id = id,
+                .layout = .{
+                    .sizing = clay.Element.Sizing.fixed(nav_size),
+                },
+                .image = .{
+                    .image_data = &images.refresh,
+                    .source_dimensions = clay.Dimensions.square(nav_size),
+                },
+                .rectangle = .{
+                    .color = if (clay.pointerOver(id)) catppuccin.hovered else catppuccin.base,
+                    .corner_radius = rounded,
+                },
+            })({
+                pointer();
+                hover.on(.refresh);
+            });
+
             clay.ui()(.{
                 .id = clay.id("CurrentDir"),
                 .layout = .{
-                    .padding = clay.Padding.all(4),
+                    .padding = clay.Padding.all(6),
                     .sizing = .{
                         .width = .{ .type = .grow },
                         .height = clay.Element.Sizing.Axis.fixed(nav_size),
@@ -319,7 +340,7 @@ fn render_frame() void {
         clay.ui()(.{
             .id = clay.id("Content"),
             .layout = .{
-                .sizing = clay.Element.Sizing.percent(100),
+                .sizing = clay.Element.Sizing.grow(.{}),
             },
             .rectangle = .{ .color = catppuccin.mantle },
         })({
@@ -374,6 +395,7 @@ fn render_frame() void {
                                 .layout = .{
                                     .padding = clay.Padding.vertical(2),
                                     .sizing = .{ .width = .{ .type = .grow } },
+                                    .child_gap = 4,
                                 },
                                 .rectangle = .{
                                     .color = if (entry.selected) |_|
@@ -388,15 +410,34 @@ fn render_frame() void {
                                 pointer();
                                 hover.on(.{ .entry = .{ kind, entry.index } });
 
+                                const icon_size = 30;
+                                var icon_image = if (kind == .dir) images.folder else images.icon;
+
+                                clay.ui()(.{
+                                    .id = clay.idi(kind_name ++ "EntryIconContainer", entry.index),
+                                    .layout = .{
+                                        .padding = .{ .top = 5, .left = 8 },
+                                        .sizing = clay.Element.Sizing.fixed(icon_size),
+                                    },
+                                })({
+                                    clay.ui()(.{
+                                        .id = clay.idi(kind_name ++ "EntryIcon", entry.index),
+                                        .layout = .{
+                                            .sizing = clay.Element.Sizing.grow(.{}),
+                                        },
+                                        .image = .{
+                                            .image_data = &icon_image,
+                                            .source_dimensions = clay.Dimensions.square(icon_size),
+                                        },
+                                    })({});
+                                });
+
                                 clay.ui()(.{
                                     .id = clay.idi(kind_name ++ "EntryName", entry.index),
                                     .layout = .{
-                                        .padding = clay.Padding.all(4),
+                                        .padding = clay.Padding.all(6),
                                     },
                                 })({
-                                    if (kind == .dir) {
-                                        text(.sm, "(dir) ");
-                                    }
                                     text(.sm, entry.name);
                                 });
                             });

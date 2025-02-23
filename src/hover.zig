@@ -16,6 +16,7 @@ const Model = @import("Model.zig");
 pub const EventParams = union(enum) {
     entry: struct { Model.Entries.Kind, Model.Index },
     parent,
+    refresh,
 };
 const Event = meta.Tag(EventParams);
 
@@ -82,6 +83,7 @@ fn OnHover(
 const onHovers: [enums.values(Event).len]type = .{
     OnHover(.entry, onEntryHover),
     OnHover(.parent, onParentHover),
+    OnHover(.refresh, onRefreshHover),
 };
 
 pub fn on(param: EventParams) void {
@@ -110,5 +112,11 @@ fn onEntryHover(state: PointerState, data: struct { Model.Entries.Kind, Model.In
 fn onParentHover(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
         try model.open_parent_dir();
+    }
+}
+
+fn onRefreshHover(state: PointerState, _: void) !void {
+    if (state == .pressed_this_frame) {
+        try model.entries.load_entries(model.cwd.items);
     }
 }
