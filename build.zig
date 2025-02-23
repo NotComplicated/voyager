@@ -111,8 +111,6 @@ const raylib_config = [_]struct { []const u8, []const u8 }{
     .{ "SUPPORT_FILEFORMAT_BMP", "1" },
     .{ "SUPPORT_FILEFORMAT_JPG", "1" },
     .{ "SUPPORT_FILEFORMAT_GIF", "1" },
-    .{ "SUPPORT_FILEFORMAT_QOI", "1" },
-    .{ "SUPPORT_FILEFORMAT_DDS", "1" },
     .{ "SUPPORT_IMAGE_EXPORT", "1" },
     .{ "SUPPORT_IMAGE_GENERATION", "1" },
     .{ "SUPPORT_IMAGE_MANIPULATION", "1" },

@@ -102,7 +102,7 @@ pub fn open_parent_dir(model: *Model) Error!void {
 pub fn open_file(model: *const Model, index: Index) Error!void {
     const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
     const name = model.entries.names.items[name_start..name_end];
-    const path = try mem.join(alloc, fs.path.sep_str, &[_][]const u8{ model.cwd.items, name });
+    const path = try fs.path.join(alloc, &.{ model.cwd.items, name });
     defer alloc.free(path);
     const invoker = if (windows)
         .{ "cmd", "/c", "start" }

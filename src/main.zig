@@ -44,7 +44,9 @@ const rl_config = rl.ConfigFlags{
     .msaa_4x_hint = true,
 };
 
-const roboto = @embedFile("resources/roboto.ttf");
+const resources = "resources" ++ fs.path.sep_str;
+
+const roboto = @embedFile(resources ++ "roboto.ttf");
 
 const FontSize = enum(u16) {
     sm = 20,
@@ -53,8 +55,11 @@ const FontSize = enum(u16) {
     xl = 48,
 };
 
-const icon_data = @embedFile("resources/voyager.bmp");
-const icon_ext = ".bmp";
+const image_filenames = .{
+    .icon = "voyager.bmp",
+    .arrow_up = "arrow-up.png",
+};
+var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;
 
 fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
@@ -96,6 +101,12 @@ fn text(comptime font_size: FontSize, contents: []const u8) void {
     comptime unreachable;
 }
 
+var cursor = rl.MouseCursor.default;
+
+fn pointer() void {
+    if (clay.hovered()) cursor = .pointing_hand;
+}
+
 pub fn updateError(err: anyerror) void {
     const err_str = switch (err) {
         Model.Error.OsNotSupported => "OS not yet supported",
@@ -124,9 +135,14 @@ pub fn main() !void {
     rl.setExitKey(.null);
     defer hover.deinit();
 
-    const icon = try rl.loadImageFromMemory(icon_ext, icon_data);
-    defer rl.unloadImage(icon);
-    rl.setWindowIcon(icon);
+    inline for (comptime meta.fieldNames(@TypeOf(image_filenames))) |image| {
+        const path = resources ++ @field(image_filenames, image);
+        const rl_image = try rl.loadImageFromMemory(@ptrCast(fs.path.extension(path)), @embedFile(path));
+        @field(images, image) = try rl_image.toTexture();
+    }
+    defer inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
+
+    rl.setWindowIcon(try rl.Image.fromTexture(images.icon));
 
     if (windows) {
         _ = DwmSetWindowAttribute(
@@ -239,7 +255,7 @@ fn render_frame() void {
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), raylib_alloc);
 
-    var cursor = rl.MouseCursor.default;
+    cursor = rl.MouseCursor.default;
     defer rl.setMouseCursor(cursor);
 
     clay.ui()(.{
@@ -257,20 +273,49 @@ fn render_frame() void {
             .id = clay.id("NavBar"),
             .layout = .{
                 .padding = clay.Padding.all(10),
-                .sizing = .{ .width = .{ .type = .grow } },
+                .sizing = .{
+                    .width = .{ .type = .grow },
+                },
+                .child_gap = 10,
             },
         })({
+            const nav_size = 30;
+
+            const id = clay.id("ToParent");
+            clay.ui()(.{
+                .id = id,
+                .layout = .{
+                    .sizing = clay.Element.Sizing.fixed(nav_size),
+                },
+                .image = .{
+                    .image_data = &images.arrow_up,
+                    .source_dimensions = clay.Dimensions.square(nav_size),
+                },
+                .rectangle = .{
+                    .color = if (clay.pointerOver(id)) catppuccin.hovered else catppuccin.base,
+                    .corner_radius = rounded,
+                },
+            })({
+                pointer();
+                hover.on(.parent);
+            });
+
             clay.ui()(.{
                 .id = clay.id("CurrentDir"),
                 .layout = .{
                     .padding = clay.Padding.all(4),
-                    .sizing = .{ .width = .{ .type = .grow } },
+                    .sizing = .{
+                        .width = .{ .type = .grow },
+                        .height = clay.Element.Sizing.Axis.fixed(nav_size),
+                    },
                 },
                 .rectangle = .{ .color = catppuccin.nav, .corner_radius = rounded },
             })({
+                pointer();
                 text(.sm, model.cwd.items);
             });
         });
+
         clay.ui()(.{
             .id = clay.id("Content"),
             .layout = .{
@@ -278,42 +323,44 @@ fn render_frame() void {
             },
             .rectangle = .{ .color = catppuccin.mantle },
         })({
+            const shortcut_width = 260; // TODO customizable
+
             clay.ui()(.{
-                .id = clay.id("Shortcuts"),
+                .id = clay.id("ShortcutsContainer"),
                 .layout = .{
-                    .layout_direction = .top_to_bottom,
-                    .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(300) },
+                    .padding = clay.Padding.all(10),
+                    .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
                 },
             })({
-                text(.sm, "Shortcuts");
+                clay.ui()(.{
+                    .id = clay.id("Shortcuts"),
+                    .layout = .{
+                        .layout_direction = .top_to_bottom,
+                        .padding = clay.Padding.all(16),
+                    },
+                })({
+                    text(.sm, "Shortcuts will go here");
+                });
             });
+
             clay.ui()(.{
                 .id = clay.id("EntriesContainer"),
                 .layout = .{
-                    .padding = clay.Padding.vertical(10),
-                    .sizing = clay.Element.Sizing.percent(100),
+                    .padding = clay.Padding.all(10),
+                    .sizing = clay.Element.Sizing.grow(.{}),
                 },
             })({
                 clay.ui()(.{
                     .id = clay.id("Entries"),
                     .layout = .{
                         .layout_direction = .top_to_bottom,
-                        .padding = clay.Padding.all(16),
-                        .sizing = clay.Element.Sizing.percent(100),
+                        .padding = clay.Padding.all(10),
+                        .sizing = clay.Element.Sizing.grow(.{}),
                         .child_gap = 4,
                     },
                     .scroll = .{ .vertical = true },
                     .rectangle = .{ .color = catppuccin.base, .corner_radius = rounded },
                 })({
-                    clay.ui()(.{
-                        .id = clay.id("ParentEntry"),
-                        .layout = .{
-                            .sizing = .{ .width = .{ .type = .grow } },
-                        },
-                    })({
-                        text(.sm, "..");
-                        hover.on(.parent);
-                    });
                     inline for (comptime Model.Entries.kinds()) |kind| {
                         var kind_name = @tagName(kind).*;
                         kind_name[0] = ascii.toUpper(kind_name[0]);
@@ -338,8 +385,9 @@ fn render_frame() void {
                                     .corner_radius = rounded,
                                 },
                             })({
-                                if (clay.hovered()) cursor = .pointing_hand;
+                                pointer();
                                 hover.on(.{ .entry = .{ kind, entry.index } });
+
                                 clay.ui()(.{
                                     .id = clay.idi(kind_name ++ "EntryName", entry.index),
                                     .layout = .{
