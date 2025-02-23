@@ -16,14 +16,14 @@ const main = @import("main.zig");
 const alloc = main.alloc;
 const debug = main.debug;
 const windows = main.windows;
+const Bytes = main.Bytes;
+const Millis = main.Millis;
 
 cwd: Bytes,
 entries: Entries,
 
 const Model = @This();
 
-const Bytes = std.ArrayListUnmanaged(u8);
-const Millis = i64;
 pub const Index = u16;
 
 const double_click: Millis = 300;
@@ -32,6 +32,7 @@ pub const Error = error{
     OsNotSupported,
     OutOfBounds,
     OpenDirFailure,
+    DirAccessDenied,
 } || mem.Allocator.Error || process.Child.SpawnError;
 
 pub fn init() !Model {
@@ -90,7 +91,15 @@ pub fn open_dir(model: *Model, index: Index) Error!void {
     const name = model.entries.names.items[name_start..name_end];
     try model.cwd.append(alloc, fs.path.sep);
     try model.cwd.appendSlice(alloc, name);
-    try model.entries.load_entries(model.cwd.items);
+
+    model.entries.load_entries(model.cwd.items) catch |err| switch (err) {
+        Error.DirAccessDenied, Error.OpenDirFailure => {
+            model.cwd.shrinkRetainingCapacity(model.cwd.items.len - name.len - 1);
+            try model.entries.load_entries(model.cwd.items);
+            return err;
+        },
+        else => return err,
+    };
 }
 
 pub fn open_parent_dir(model: *Model) Error!void {
@@ -210,12 +219,14 @@ pub const Entries = struct {
         entries.names.clearRetainingCapacity();
         for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.clearRetainingCapacity();
 
-        const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch return Error.OpenDirFailure;
+        const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch |err|
+            return if (err == error.AccessDenied) Error.DirAccessDenied else Error.OpenDirFailure;
         var iter = dir.iterate();
         while (iter.next() catch null) |entry| {
             if (entry.name.len == 0) continue;
             const start_index = entries.names.items.len;
-            entries.names.appendSlice(alloc, entry.name) catch break;
+            try entries.names.appendSlice(alloc, entry.name);
+
             const is_dir = entry.kind == .directory;
             const metadata = if (is_dir)
                 (dir.openDir(entry.name, .{ .access_sub_paths = false }) catch continue).metadata() catch continue

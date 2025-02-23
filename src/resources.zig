@@ -14,9 +14,9 @@ pub const roboto = @embedFile(resources_path ++ "roboto.ttf");
 
 pub const FontSize = enum(u16) {
     sm = 20,
-    md = 32,
+    md = 30,
     lg = 40,
-    xl = 48,
+    xl = 50,
 };
 
 const image_filenames = .{

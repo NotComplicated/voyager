@@ -12,6 +12,7 @@ const log = std.log;
 const os = std.os;
 const process = std.process;
 const ascii = std.ascii;
+const time = std.time;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -19,8 +20,12 @@ const renderer = clay.renderers.raylib;
 const rl = @import("raylib");
 
 const resources = @import("resources.zig");
+const FontSize = resources.FontSize;
 const hover = @import("hover.zig");
 const Model = @import("Model.zig");
+
+pub const Bytes = std.ArrayListUnmanaged(u8);
+pub const Millis = i64;
 
 pub var model: Model = undefined;
 
@@ -48,7 +53,12 @@ fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }
 
-const catppuccin = .{
+fn opacity(color: clay.Color, alpha: f32) clay.Color {
+    return .{ .r = color.r, .g = color.g, .b = color.b, .a = alpha * 255 };
+}
+
+const theme = .{
+    .alert = rgb(228, 66, 38),
     .text = rgb(205, 214, 244),
     .nav = rgb(43, 43, 58),
     .base = rgb(30, 30, 46),
@@ -58,9 +68,9 @@ const catppuccin = .{
 };
 
 const title_color =
-    @as(os.windows.DWORD, @intFromFloat(catppuccin.base.r)) +
-    (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.g)) << 8) +
-    (@as(os.windows.DWORD, @intFromFloat(catppuccin.base.b)) << 16);
+    @as(os.windows.DWORD, @intFromFloat(theme.base.r)) +
+    (@as(os.windows.DWORD, @intFromFloat(theme.base.g)) << 8) +
+    (@as(os.windows.DWORD, @intFromFloat(theme.base.b)) << 16);
 const dwma_caption_color = 35;
 
 const rounded = clay.CornerRadius.all(6);
@@ -69,11 +79,15 @@ fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
 
-fn text(comptime font_size: resources.FontSize, contents: []const u8) void {
-    inline for (comptime enums.values(resources.FontSize), 0..) |size, id| {
+fn text(comptime font_size: FontSize, contents: []const u8) void {
+    text_colored(font_size, contents, theme.text);
+}
+
+fn text_colored(comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
+    inline for (comptime enums.values(FontSize), 0..) |size, id| {
         if (size == font_size) {
             clay.text(contents, .{
-                .color = catppuccin.text,
+                .color = color,
                 .font_id = id,
                 .font_size = @intFromEnum(size),
                 .wrap_mode = .none,
@@ -90,21 +104,69 @@ fn pointer() void {
     if (clay.hovered()) cursor = .pointing_hand;
 }
 
+const error_duration: Millis = 1_500;
+const error_fade_duration: Millis = 300;
+const unexpected_error = "Unexpected Error";
+
+var error_data: struct { timer: Millis, msg: Bytes } = .{ .timer = 0, .msg = .{} };
+
 pub fn updateError(err: anyerror) void {
-    const err_str = switch (err) {
-        Model.Error.OsNotSupported => "OS not yet supported",
-        else => @errorName(err),
-    };
-    log.err("{s}\n", .{err_str}); // TODO replace with graphical error modal
     if (err == error.OutOfMemory) process.abort();
+    error_data.timer = error_duration;
+    error_data.msg.clearRetainingCapacity();
+    var writer = error_data.msg.writer(alloc);
+    switch (err) {
+        Model.Error.OsNotSupported => _ = writer.write("Error: OS not yet supported") catch process.abort(),
+        Model.Error.DirAccessDenied => _ = writer.write("Error: Unable to open this folder") catch process.abort(),
+        else => {
+            const err_name = @errorName(err);
+            _ = writer.write("Error: \"") catch process.abort();
+            for (err_name) |c| {
+                if (ascii.isUpper(c)) {
+                    _ = writer.writeByte(' ') catch process.abort();
+                }
+                _ = writer.writeByte(ascii.toLower(c)) catch process.abort();
+            }
+            _ = writer.writeByte('"') catch process.abort();
+        },
+    }
 }
 
-extern fn DwmSetWindowAttribute(
-    window: os.windows.HWND,
-    attr: os.windows.DWORD,
-    pvAttr: os.windows.LPCVOID,
-    cbAttr: os.windows.DWORD,
-) os.windows.HRESULT;
+pub fn updateRichError(comptime format: []const u8, args: anytype) void {
+    error_data.timer = error_duration;
+    error_data.msg.clearRetainingCapacity();
+    error_data.msg.writer(alloc).print("Error: " ++ format, args) catch
+        error_data.msg.appendSlice(alloc, unexpected_error) catch process.abort();
+}
+
+fn render_error() void {
+    const delta_ms: Millis = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
+    if (error_data.timer < delta_ms) return;
+    error_data.timer -= delta_ms;
+
+    var alpha: f32 = 1;
+    if (error_data.timer < error_fade_duration) {
+        alpha = @as(f32, @floatFromInt(error_data.timer)) / @as(f32, @floatFromInt(error_fade_duration));
+    }
+
+    clay.ui()(.{
+        .id = clay.id("ErrorModal"),
+        .floating = .{
+            .z_index = 1,
+            .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
+            .offset = .{ .x = -24, .y = -24 },
+            .pointer_capture_mode = .passthrough,
+        },
+        .layout = .{
+            .sizing = .{ .height = clay.Element.Sizing.Axis.fixed(60) },
+            .padding = clay.Padding.horizontal(12),
+            .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
+        },
+        .rectangle = .{ .color = opacity(theme.alert, alpha), .corner_radius = rounded },
+    })({
+        text_colored(.md, error_data.msg.items, opacity(theme.text, alpha));
+    });
+}
 
 pub fn main() !void {
     clay.setMaxElementCount(max_elem_count);
@@ -119,7 +181,14 @@ pub fn main() !void {
     defer hover.deinit();
 
     if (windows) {
-        _ = DwmSetWindowAttribute(
+        _ = struct {
+            extern fn DwmSetWindowAttribute(
+                window: os.windows.HWND,
+                attr: os.windows.DWORD,
+                pvAttr: os.windows.LPCVOID,
+                cbAttr: os.windows.DWORD,
+            ) os.windows.HRESULT;
+        }.DwmSetWindowAttribute(
             @ptrCast(rl.getWindowHandle()),
             dwma_caption_color,
             &title_color,
@@ -138,9 +207,11 @@ pub fn main() !void {
 
 fn render_frame() void {
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
+
     // setPointerState will call all hover events, updating the model
     clay.setPointerState(vector_conv(rl.getMousePosition()), rl.isMouseButtonDown(.left));
-    clay.updateScrollContainers(true, vector_conv(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 4)), rl.getFrameTime());
+
+    clay.updateScrollContainers(true, vector_conv(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 5)), rl.getFrameTime());
 
     rl.beginDrawing();
     defer rl.endDrawing();
@@ -231,14 +302,13 @@ fn render_frame() void {
     clay.ui()(.{
         .id = clay.id("Screen"),
         .layout = .{
-            .sizing = .{
-                .width = .{ .size = .{ .percent = 1 }, .type = .percent },
-                .height = .{ .size = .{ .percent = 1 }, .type = .percent },
-            },
+            .sizing = clay.Element.Sizing.grow(.{}),
             .layout_direction = .top_to_bottom,
         },
-        .rectangle = .{ .color = catppuccin.base },
+        .rectangle = .{ .color = theme.base },
     })({
+        render_error();
+
         clay.ui()(.{
             .id = clay.id("NavBar"),
             .layout = .{
@@ -262,7 +332,7 @@ fn render_frame() void {
                     .source_dimensions = clay.Dimensions.square(nav_size),
                 },
                 .rectangle = .{
-                    .color = if (clay.pointerOver(id)) catppuccin.hovered else catppuccin.base,
+                    .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
                     .corner_radius = rounded,
                 },
             })({
@@ -281,7 +351,7 @@ fn render_frame() void {
                     .source_dimensions = clay.Dimensions.square(nav_size),
                 },
                 .rectangle = .{
-                    .color = if (clay.pointerOver(id)) catppuccin.hovered else catppuccin.base,
+                    .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
                     .corner_radius = rounded,
                 },
             })({
@@ -298,7 +368,7 @@ fn render_frame() void {
                         .height = clay.Element.Sizing.Axis.fixed(nav_size),
                     },
                 },
-                .rectangle = .{ .color = catppuccin.nav, .corner_radius = rounded },
+                .rectangle = .{ .color = theme.nav, .corner_radius = rounded },
             })({
                 pointer();
                 text(.sm, model.cwd.items);
@@ -310,7 +380,7 @@ fn render_frame() void {
             .layout = .{
                 .sizing = clay.Element.Sizing.grow(.{}),
             },
-            .rectangle = .{ .color = catppuccin.mantle },
+            .rectangle = .{ .color = theme.mantle },
         })({
             const shortcut_width = 260; // TODO customizable
 
@@ -348,7 +418,7 @@ fn render_frame() void {
                         .child_gap = 4,
                     },
                     .scroll = .{ .vertical = true },
-                    .rectangle = .{ .color = catppuccin.base, .corner_radius = rounded },
+                    .rectangle = .{ .color = theme.base, .corner_radius = rounded },
                 })({
                     inline for (comptime Model.Entries.kinds()) |kind| {
                         var kind_name = @tagName(kind).*;
@@ -361,17 +431,17 @@ fn render_frame() void {
                             clay.ui()(.{
                                 .id = id,
                                 .layout = .{
-                                    .padding = clay.Padding.vertical(2),
+                                    .padding = .{ .top = 4, .bottom = 4, .left = 8 },
                                     .sizing = .{ .width = .{ .type = .grow } },
                                     .child_gap = 4,
                                 },
                                 .rectangle = .{
                                     .color = if (entry.selected) |_|
-                                        catppuccin.selected
+                                        theme.selected
                                     else if (clay.pointerOver(id))
-                                        catppuccin.hovered
+                                        theme.hovered
                                     else
-                                        catppuccin.base,
+                                        theme.base,
                                     .corner_radius = rounded,
                                 },
                             })({

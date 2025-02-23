@@ -9,7 +9,6 @@ const PointerState = clay.Pointer.Data.InteractionState;
 const main = @import("main.zig");
 const alloc = main.alloc;
 const updateError = main.updateError;
-const model = &main.model;
 
 const Model = @import("Model.zig");
 
@@ -105,18 +104,18 @@ pub fn deinit() void {
 fn onEntryHover(state: PointerState, data: struct { Model.Entries.Kind, Model.Index }) !void {
     const kind, const index = data;
     if (state == .pressed_this_frame) {
-        try model.select(kind, index, .try_open);
+        try main.model.select(kind, index, .try_open);
     }
 }
 
 fn onParentHover(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
-        try model.open_parent_dir();
+        try main.model.open_parent_dir();
     }
 }
 
 fn onRefreshHover(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
-        try model.entries.load_entries(model.cwd.items);
+        try main.model.entries.load_entries(main.model.cwd.items);
     }
 }
