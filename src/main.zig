@@ -18,11 +18,11 @@ const renderer = clay.renderers.raylib;
 
 const rl = @import("raylib");
 
+const resources = @import("resources.zig");
+const hover = @import("hover.zig");
 const Model = @import("Model.zig");
 
 pub var model: Model = undefined;
-
-const hover = @import("hover.zig");
 
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = 1000 + if (debug) 400 else 0;
@@ -43,25 +43,6 @@ const rl_config = rl.ConfigFlags{
     .window_resizable = true,
     .msaa_4x_hint = true,
 };
-
-const resources = "resources" ++ fs.path.sep_str;
-
-const roboto = @embedFile(resources ++ "roboto.ttf");
-
-const FontSize = enum(u16) {
-    sm = 20,
-    md = 32,
-    lg = 40,
-    xl = 48,
-};
-
-const image_filenames = .{
-    .icon = "voyager.bmp",
-    .arrow_up = "arrow-up.png",
-    .refresh = "refresh.png",
-    .folder = "folder.png",
-};
-var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;
 
 fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
@@ -88,8 +69,8 @@ fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
 
-fn text(comptime font_size: FontSize, contents: []const u8) void {
-    inline for (comptime enums.values(FontSize), 0..) |size, id| {
+fn text(comptime font_size: resources.FontSize, contents: []const u8) void {
+    inline for (comptime enums.values(resources.FontSize), 0..) |size, id| {
         if (size == font_size) {
             clay.text(contents, .{
                 .color = catppuccin.text,
@@ -137,15 +118,6 @@ pub fn main() !void {
     rl.setExitKey(.null);
     defer hover.deinit();
 
-    inline for (comptime meta.fieldNames(@TypeOf(image_filenames))) |image| {
-        const path = resources ++ @field(image_filenames, image);
-        const rl_image = try rl.loadImageFromMemory(@ptrCast(fs.path.extension(path)), @embedFile(path));
-        @field(images, image) = try rl_image.toTexture();
-    }
-    defer inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
-
-    rl.setWindowIcon(try rl.Image.fromTexture(images.icon));
-
     if (windows) {
         _ = DwmSetWindowAttribute(
             @ptrCast(rl.getWindowHandle()),
@@ -155,12 +127,8 @@ pub fn main() !void {
         );
     }
 
-    inline for (comptime enums.values(FontSize), 0..) |size, id| {
-        const roboto_font = try rl.Font.fromMemory(".ttf", roboto, @intFromEnum(size), null);
-        rl.setTextureFilter(roboto_font.texture, .anisotropic_8x);
-        renderer.addFont(id, roboto_font);
-    }
-    defer inline for (0..comptime enums.values(FontSize).len) |id| renderer.getFont(id).unload();
+    try resources.init_resources();
+    defer resources.deinit_resources();
 
     model = try Model.init();
     defer model.deinit();
@@ -290,7 +258,7 @@ fn render_frame() void {
                     .sizing = clay.Element.Sizing.fixed(nav_size),
                 },
                 .image = .{
-                    .image_data = &images.arrow_up,
+                    .image_data = &resources.images.arrow_up,
                     .source_dimensions = clay.Dimensions.square(nav_size),
                 },
                 .rectangle = .{
@@ -309,7 +277,7 @@ fn render_frame() void {
                     .sizing = clay.Element.Sizing.fixed(nav_size),
                 },
                 .image = .{
-                    .image_data = &images.refresh,
+                    .image_data = &resources.images.refresh,
                     .source_dimensions = clay.Dimensions.square(nav_size),
                 },
                 .rectangle = .{
@@ -410,14 +378,15 @@ fn render_frame() void {
                                 pointer();
                                 hover.on(.{ .entry = .{ kind, entry.index } });
 
-                                const icon_size = 30;
-                                var icon_image = if (kind == .dir) images.folder else images.icon;
+                                const icon_image = if (kind == .dir)
+                                    if (clay.hovered()) &resources.images.folder_open else &resources.images.folder
+                                else
+                                    resources.get_file_icon(entry.name);
 
                                 clay.ui()(.{
                                     .id = clay.idi(kind_name ++ "EntryIconContainer", entry.index),
                                     .layout = .{
-                                        .padding = .{ .top = 5, .left = 8 },
-                                        .sizing = clay.Element.Sizing.fixed(icon_size),
+                                        .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
                                     },
                                 })({
                                     clay.ui()(.{
@@ -426,8 +395,8 @@ fn render_frame() void {
                                             .sizing = clay.Element.Sizing.grow(.{}),
                                         },
                                         .image = .{
-                                            .image_data = &icon_image,
-                                            .source_dimensions = clay.Dimensions.square(icon_size),
+                                            .image_data = icon_image,
+                                            .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
                                         },
                                     })({});
                                 });
