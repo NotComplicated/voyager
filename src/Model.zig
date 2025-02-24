@@ -1,6 +1,7 @@
 const std = @import("std");
 const process = std.process;
 const builtin = std.builtin;
+const ascii = std.ascii;
 const enums = std.enums;
 const time = std.time;
 const meta = std.meta;
@@ -9,6 +10,8 @@ const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 
+const clay = @import("clay");
+
 const rl = @import("raylib");
 
 const main = @import("main.zig");
@@ -16,6 +19,7 @@ const Bytes = main.Bytes;
 const Millis = main.Millis;
 
 cwd: Bytes,
+cursor: ?Index,
 entries: Entries,
 
 const Model = @This();
@@ -34,6 +38,7 @@ pub const Error = error{
 pub fn init() !Model {
     var model = Model{
         .cwd = try Bytes.initCapacity(main.alloc, 1024),
+        .cursor = null,
         .entries = .{
             .data = meta.FieldType(Entries, .data).initFill(.{}),
             .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
@@ -60,6 +65,150 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
+pub fn enterEditing(model: *Model) void {
+    model.cursor = @intCast(model.cwd.items.len);
+}
+
+pub fn exitEditing(model: *Model) void {
+    model.cursor = null;
+}
+
+pub fn handleKeyboard(model: *Model) Error!void {
+    const key = rl.getKeyPressed();
+    const shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+    const key_int = @intFromEnum(key);
+    const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
+    const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
+        @intCast(key_int)
+    else if (320 <= key_int and key_int <= 329) // numpad
+        @intCast(key_int - (320 - 48))
+    else
+        null;
+    const as_punc: ?u8 = switch (key) {
+        .apostrophe => '\'',
+        .comma => ',',
+        .minus => '-',
+        .period => '.',
+        .slash => '/',
+        .semicolon => ';',
+        .equal => '=',
+        .space => ' ',
+        .left_bracket => '[',
+        .backslash => '\\',
+        .right_bracket => ']',
+        .grave => '`',
+        else => null,
+    };
+
+    if (model.cursor) |*cursor_index| {
+        const char: ?u8 = if (as_alpha) |alpha|
+            if (!shift) ascii.toLower(alpha) else alpha
+        else if (as_num) |num|
+            if (shift) switch (num) {
+                '1' => '!',
+                '2' => '@',
+                '3' => '#',
+                '4' => '$',
+                '5' => '%',
+                '6' => '^',
+                '7' => '&',
+                '8' => '*',
+                '9' => '(',
+                '0' => ')',
+                else => unreachable,
+            } else num
+        else if (as_punc) |punc|
+            if (shift) switch (punc) {
+                '\'' => '"',
+                ',' => '<',
+                '-' => '_',
+                '.' => '>',
+                '/' => '?',
+                ';' => ':',
+                '=' => '+',
+                ' ' => ' ',
+                '[' => '{',
+                '\\' => '|',
+                ']' => '}',
+                '`' => '~',
+                else => unreachable,
+            } else punc
+        else
+            null;
+
+        if (char) |c| {
+            try model.cwd.insert(main.alloc, cursor_index.*, c);
+            cursor_index.* += 1;
+        }
+    } else {
+        switch (key) {
+            .escape => {
+                try model.open_parent_dir();
+            },
+            .up, .down => updown: {
+                for (Model.Entries.kinds()) |kind| {
+                    var sorted = model.entries.sorted(kind, &.{.selected});
+                    var sorted_index: Model.Index = 0;
+                    while (sorted.next()) |entry| : (sorted_index += 1) {
+                        if (entry.selected != null) {
+                            // TODO handle going from one kind to the other
+                            // TODO how to get next/prev?
+                            // if (key == .up and sorted_index > 0) {
+                            //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
+                            //     break :updown;
+                            // } else if (key == .down and sort_index < sort_list.len - 1) {
+                            //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
+                            //     break :updown;
+                            // }
+                            break :updown;
+                        }
+                    }
+                }
+                if (key == .down) {
+                    // TODO bounds check the 0
+                    // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+                    //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+                    //     else => updateError(err),
+                    // };
+                    clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
+                }
+            },
+            // TODO select_top() / select_bottom() ?
+            .home => {
+                // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+                //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+                //     else => updateError(err),
+                // };
+                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
+            },
+            .end => {
+                // TODO
+                // if (model.entries.list.len > 0) {
+                //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
+                // }
+                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
+            },
+            .enter => {
+                // TODO also support opening dirs?
+                for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
+                    if (selected) |_| try model.open_file(@intCast(index));
+                }
+            },
+            .period => _ = model.entries.try_jump('.'),
+            else => {},
+        }
+
+        // jump to entries when typing letters/numbers
+        if (as_alpha) |alpha| {
+            if (model.entries.try_jump(alpha) == .not_found) {
+                _ = model.entries.try_jump(ascii.toUpper(alpha));
+            }
+        } else if (as_num) |num| {
+            _ = model.entries.try_jump(num);
+        }
+    }
+}
+
 pub fn select(model: *Model, kind: Entries.Kind, index: Index, action: enum { touch, try_open }) Error!void {
     const selected = model.entries.data_slices.get(kind).items(.selected);
     if (selected.len <= index) return Error.OutOfBounds;
@@ -74,7 +223,7 @@ pub fn select(model: *Model, kind: Entries.Kind, index: Index, action: enum { to
     if (rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift)) {
         // TODO bulk selection
     }
-    if (!rl.isKeyDown(.left_control) and !rl.isKeyDown(.right_control)) {
+    if (!(rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control))) {
         for (model.entries.data_slices.values) |slice| {
             for (slice.items(.selected)) |*unselect| unselect.* = null;
         }

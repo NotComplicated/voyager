@@ -59,6 +59,7 @@ pub fn opacity(color: clay.Color, alpha: f32) clay.Color {
 pub const theme = .{
     .alert = rgb(228, 66, 38),
     .text = rgb(205, 214, 244),
+    .bright_text = rgb(255, 255, 255),
     .nav = rgb(43, 43, 58),
     .base = rgb(30, 30, 46),
     .hovered = rgb(43, 43, 58),
@@ -158,75 +159,7 @@ fn render_frame() void {
         model.open_parent_dir() catch |err| alert.update(err);
     }
 
-    const key = rl.getKeyPressed();
-    switch (key) {
-        .escape => {
-            model.open_parent_dir() catch |err| alert.update(err);
-        },
-        .up, .down => updown: {
-            for (Model.Entries.kinds()) |kind| {
-                var sorted = model.entries.sorted(kind, &.{.selected});
-                var sorted_index: Model.Index = 0;
-                while (sorted.next()) |entry| : (sorted_index += 1) {
-                    if (entry.selected != null) {
-                        // TODO handle going from one kind to the other
-                        // TODO how to get next/prev?
-                        // if (key == .up and sorted_index > 0) {
-                        //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
-                        //     break :updown;
-                        // } else if (key == .down and sort_index < sort_list.len - 1) {
-                        //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
-                        //     break :updown;
-                        // }
-                        break :updown;
-                    }
-                }
-            }
-            if (key == .down) {
-                // TODO bounds check the 0
-                // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-                //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-                //     else => updateError(err),
-                // };
-                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-            }
-        },
-        // TODO select_top() / select_bottom() ?
-        .home => {
-            // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-            //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-            //     else => updateError(err),
-            // };
-            clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-        },
-        .end => {
-            // TODO
-            // if (model.entries.list.len > 0) {
-            //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
-            // }
-            clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
-        },
-        .enter => {
-            // TODO also support opening dirs?
-            for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
-                if (selected) |_| model.open_file(@intCast(index)) catch |err| alert.update(err);
-            }
-        },
-        .period => _ = model.entries.try_jump('.'),
-        else => {},
-    }
-
-    // jump to entries when typing letters/numbers
-    const key_int = @intFromEnum(key);
-    if (65 <= key_int and key_int <= 90) {
-        if (model.entries.try_jump(@intCast(key_int)) == .not_found) {
-            _ = model.entries.try_jump(@intCast(key_int + 32));
-        }
-    } else if (48 <= key_int and key_int <= 57) {
-        _ = model.entries.try_jump(@intCast(key_int - 48));
-    } else if (320 <= key_int and key_int <= 329) {
-        _ = model.entries.try_jump(@intCast(key_int - 320));
-    }
+    model.handleKeyboard() catch |err| alert.update(err);
 
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), raylib_alloc);
@@ -243,6 +176,10 @@ fn render_frame() void {
         .rectangle = .{ .color = theme.base },
     })({
         alert.render();
+
+        const cwd_id = clay.id("CurrentDir");
+
+        hover.on(.{ .focus = if (clay.pointerOver(cwd_id)) .cwd else null });
 
         clay.ui()(.{
             .id = clay.id("NavBar"),
@@ -281,18 +218,28 @@ fn render_frame() void {
             navButton("Refresh", .refresh, &resources.images.refresh);
 
             clay.ui()(.{
-                .id = clay.id("CurrentDir"),
+                .id = cwd_id,
                 .layout = .{
                     .padding = clay.Padding.all(6),
                     .sizing = .{
                         .width = .{ .type = .grow },
                         .height = clay.Element.Sizing.Axis.fixed(nav_size),
                     },
+                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
                 },
-                .rectangle = .{ .color = theme.nav, .corner_radius = rounded },
+                .rectangle = .{
+                    .color = if (model.cursor) |_| theme.selected else theme.nav,
+                    .corner_radius = rounded,
+                },
             })({
                 pointer();
-                text(.sm, model.cwd.items);
+                if (model.cursor) |cursor_index| {
+                    text(.sm, model.cwd.items[0..cursor_index]);
+                    text_colored(.md, "|", theme.bright_text);
+                    text(.sm, model.cwd.items[cursor_index..]);
+                } else {
+                    text(.sm, model.cwd.items);
+                }
             });
 
             navButton("VsCode", .vscode, &resources.images.vscode);

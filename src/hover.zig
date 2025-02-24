@@ -11,6 +11,7 @@ const alert = @import("alert.zig");
 const Model = @import("Model.zig");
 
 pub const EventParam = union(enum) {
+    focus: ?enum { cwd },
     entry: struct { Model.Entries.Kind, Model.Index },
     parent,
     refresh,
@@ -79,10 +80,11 @@ fn OnHover(
 }
 
 const onHovers: [enums.values(Event).len]type = .{
-    OnHover(.entry, onEntryHover),
-    OnHover(.parent, onParentHover),
-    OnHover(.refresh, onRefreshHover),
-    OnHover(.vscode, onVscodeHover),
+    OnHover(.focus, onFocus),
+    OnHover(.entry, onEntry),
+    OnHover(.parent, onParent),
+    OnHover(.refresh, onRefresh),
+    OnHover(.vscode, onVscode),
 };
 
 pub fn on(param: EventParam) void {
@@ -101,26 +103,35 @@ pub fn deinit() void {
     }
 }
 
-fn onEntryHover(state: PointerState, data: struct { Model.Entries.Kind, Model.Index }) !void {
+fn onFocus(state: PointerState, focus: meta.TagPayload(EventParam, .focus)) !void {
+    if (state == .pressed_this_frame) {
+        main.model.exitEditing();
+        switch (focus orelse return) {
+            .cwd => main.model.enterEditing(),
+        }
+    }
+}
+
+fn onEntry(state: PointerState, data: struct { Model.Entries.Kind, Model.Index }) !void {
     const kind, const index = data;
     if (state == .pressed_this_frame) {
         try main.model.select(kind, index, .try_open);
     }
 }
 
-fn onParentHover(state: PointerState, _: void) !void {
+fn onParent(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
         try main.model.open_parent_dir();
     }
 }
 
-fn onRefreshHover(state: PointerState, _: void) !void {
+fn onRefresh(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
         try main.model.entries.load_entries(main.model.cwd.items);
     }
 }
 
-fn onVscodeHover(state: PointerState, _: void) !void {
+fn onVscode(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
         try main.model.open_vscode();
     }
