@@ -76,6 +76,7 @@ pub fn exitEditing(model: *Model) void {
 pub fn handleKeyboard(model: *Model) Error!void {
     const key = rl.getKeyPressed();
     const shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+    const ctrl = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
     const key_int = @intFromEnum(key);
     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
     const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
@@ -101,44 +102,117 @@ pub fn handleKeyboard(model: *Model) Error!void {
     };
 
     if (model.cursor) |*cursor_index| {
-        const char: ?u8 = if (as_alpha) |alpha|
-            if (!shift) ascii.toLower(alpha) else alpha
-        else if (as_num) |num|
-            if (shift) switch (num) {
-                '1' => '!',
-                '2' => '@',
-                '3' => '#',
-                '4' => '$',
-                '5' => '%',
-                '6' => '^',
-                '7' => '&',
-                '8' => '*',
-                '9' => '(',
-                '0' => ')',
-                else => unreachable,
-            } else num
-        else if (as_punc) |punc|
-            if (shift) switch (punc) {
-                '\'' => '"',
-                ',' => '<',
-                '-' => '_',
-                '.' => '>',
-                '/' => '?',
-                ';' => ':',
-                '=' => '+',
-                ' ' => ' ',
-                '[' => '{',
-                '\\' => '|',
-                ']' => '}',
-                '`' => '~',
-                else => unreachable,
-            } else punc
-        else
-            null;
+        switch (key) {
+            .backspace => {
+                if (ctrl) {
+                    const last_index = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
+                    const del_until: Index = @intCast(last_index orelse 0);
+                    model.cwd.replaceRangeAssumeCapacity(del_until, cursor_index.* - del_until, "");
+                    cursor_index.* = del_until;
+                } else if (cursor_index.* > 0) {
+                    _ = model.cwd.orderedRemove(cursor_index.* - 1);
+                    cursor_index.* -= 1;
+                }
+            },
+            .delete => if (cursor_index.* < model.cwd.items.len) {
+                _ = model.cwd.orderedRemove(cursor_index.*);
+            },
+            .tab, .escape => model.exitEditing(),
+            .enter => try model.entries.load_entries(model.cwd.items),
+            .up, .home => cursor_index.* = 0,
+            .down, .end => cursor_index.* = @intCast(model.cwd.items.len),
+            .left => {
+                if (ctrl) {
+                    const maybe_prev_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
+                    if (maybe_prev_sep) |prev_sep| {
+                        const prev_sep_index: Index = @intCast(prev_sep);
+                        if (cursor_index.* == prev_sep_index + 1) {
+                            cursor_index.* -= 1;
+                        } else {
+                            cursor_index.* = prev_sep_index + 1;
+                        }
+                    } else {
+                        cursor_index.* = 0;
+                    }
+                } else if (cursor_index.* > 0) {
+                    cursor_index.* -= 1;
+                }
+            },
+            .right => {
+                if (ctrl) {
+                    const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
+                    if (maybe_next_sep) |next_sep| {
+                        const next_sep_index: Index = @intCast(next_sep);
+                        if (cursor_index.* == next_sep_index) {
+                            cursor_index.* += 1;
+                        } else {
+                            cursor_index.* = next_sep_index;
+                        }
+                    } else {
+                        cursor_index.* = @intCast(model.cwd.items.len);
+                    }
+                } else if (cursor_index.* < model.cwd.items.len) {
+                    cursor_index.* += 1;
+                }
+            },
 
-        if (char) |c| {
-            try model.cwd.insert(main.alloc, cursor_index.*, c);
-            cursor_index.* += 1;
+            else => {
+                const maybe_char: ?u8 = if (as_alpha) |alpha|
+                    if (!shift) ascii.toLower(alpha) else alpha
+                else if (as_num) |num|
+                    if (shift) switch (num) {
+                        '1' => '!',
+                        '2' => '@',
+                        '3' => '#',
+                        '4' => '$',
+                        '5' => '%',
+                        '6' => '^',
+                        '7' => '&',
+                        '8' => '*',
+                        '9' => '(',
+                        '0' => ')',
+                        else => unreachable,
+                    } else num
+                else if (as_punc) |punc|
+                    if (shift) switch (punc) {
+                        '\'' => '"',
+                        ',' => '<',
+                        '-' => '_',
+                        '.' => '>',
+                        '/' => '?',
+                        ';' => ':',
+                        '=' => '+',
+                        ' ' => ' ',
+                        '[' => '{',
+                        '\\' => '|',
+                        ']' => '}',
+                        '`' => '~',
+                        else => unreachable,
+                    } else punc
+                else
+                    null;
+
+                if (maybe_char) |char| {
+                    if (ctrl) {
+                        switch (char) {
+                            'c' => {
+                                try model.cwd.append(main.alloc, 0);
+                                defer _ = model.cwd.pop();
+                                rl.setClipboardText(@ptrCast(model.cwd.items.ptr));
+                            },
+                            'v' => {
+                                const clipboard = mem.span(rl.getClipboardText());
+                                try model.cwd.insertSlice(main.alloc, cursor_index.*, clipboard);
+                                cursor_index.* += @intCast(clipboard.len);
+                            },
+                            else => {},
+                        }
+                    } else {
+                        try model.cwd.insert(main.alloc, cursor_index.*, char);
+                        cursor_index.* += 1;
+                    }
+                }
+            },
         }
     } else {
         switch (key) {
@@ -375,12 +449,14 @@ pub const Entries = struct {
     }
 
     pub fn load_entries(entries: *Entries, cwd: []const u8) Error!void {
+        if (!fs.path.isAbsolute(cwd)) return Error.OpenDirFailure;
+        const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch |err|
+            return if (err == error.AccessDenied) Error.DirAccessDenied else Error.OpenDirFailure;
+
         for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
         entries.names.clearRetainingCapacity();
         for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.clearRetainingCapacity();
 
-        const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch |err|
-            return if (err == error.AccessDenied) Error.DirAccessDenied else Error.OpenDirFailure;
         var iter = dir.iterate();
         while (iter.next() catch null) |entry| {
             if (entry.name.len == 0) continue;

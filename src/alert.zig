@@ -25,7 +25,9 @@ pub fn update(err: anyerror) void {
     var writer = alert.msg.writer(main.alloc);
     switch (err) {
         Model.Error.OsNotSupported => _ = writer.write("Error: OS not yet supported") catch process.abort(),
-        Model.Error.DirAccessDenied => _ = writer.write("Error: Unable to open this folder") catch process.abort(),
+        Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => {
+            _ = writer.write("Error: Unable to open this folder") catch process.abort();
+        },
         else => {
             const err_name = @errorName(err);
             _ = writer.write("Error: \"") catch process.abort();
@@ -60,9 +62,9 @@ pub fn render() void {
     clay.ui()(.{
         .id = clay.id("ErrorModal"),
         .floating = .{
+            .offset = .{ .x = -24, .y = -24 },
             .z_index = 1,
             .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
-            .offset = .{ .x = -24, .y = -24 },
             .pointer_capture_mode = .passthrough,
         },
         .layout = .{
@@ -75,6 +77,6 @@ pub fn render() void {
             .corner_radius = main.rounded,
         },
     })({
-        main.text_colored(.md, alert.msg.items, main.opacity(main.theme.text, alpha));
+        main.textEx(.roboto, .md, alert.msg.items, main.opacity(main.theme.text, alpha));
     });
 }

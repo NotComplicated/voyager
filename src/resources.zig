@@ -10,7 +10,12 @@ const rl = @import("raylib");
 
 const resources_path = "resources" ++ fs.path.sep_str;
 
-pub const roboto = @embedFile(resources_path ++ "roboto.ttf");
+const font_filenames = .{
+    .roboto = "roboto.ttf",
+    .roboto_mono = "roboto-mono.ttf",
+};
+
+pub const Font = meta.FieldEnum(@TypeOf(font_filenames));
 
 pub const FontSize = enum(u16) {
     sm = 20,
@@ -126,15 +131,23 @@ pub fn init_resources() !void {
     };
     errdefer for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
 
-    inline for (comptime enums.values(FontSize), 0..) |size, id| {
-        const roboto_font = try rl.Font.fromMemory(".ttf", roboto, @intFromEnum(size), null);
-        rl.setTextureFilter(roboto_font.texture, .anisotropic_8x);
-        renderer.addFont(id, roboto_font);
+    inline for (comptime meta.fieldNames(@TypeOf(font_filenames)), 0..) |font_name, i| {
+        inline for (comptime enums.values(FontSize), 0..) |size, j| {
+            const font = try rl.Font.fromMemory(
+                ".ttf",
+                @embedFile(resources_path ++ @field(font_filenames, font_name)),
+                @intFromEnum(size),
+                null,
+            );
+            rl.setTextureFilter(font.texture, .anisotropic_8x);
+            renderer.addFont(@intCast(i * enums.values(FontSize).len + j), font);
+        }
     }
 }
 
 pub fn deinit_resources() void {
     inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
     for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
-    inline for (0..comptime enums.values(FontSize).len) |id| renderer.getFont(id).unload();
+    inline for (0..comptime meta.fields(@TypeOf(font_filenames)).len) |i|
+        for (0..comptime enums.values(FontSize).len) |j| renderer.getFont(@intCast(i * enums.values(FontSize).len + j)).unload();
 }

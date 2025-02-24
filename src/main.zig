@@ -18,6 +18,7 @@ const rl = @import("raylib");
 
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
+const Font = resources.Font;
 const hover = @import("hover.zig");
 const EventParam = hover.EventParam;
 const alert = @import("alert.zig");
@@ -80,19 +81,21 @@ fn vector_conv(v: rl.Vector2) clay.Vector2 {
 }
 
 pub fn text(comptime font_size: FontSize, contents: []const u8) void {
-    text_colored(font_size, contents, theme.text);
+    textEx(.roboto, font_size, contents, theme.text);
 }
 
-pub fn text_colored(comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
-    inline for (comptime enums.values(FontSize), 0..) |size, id| {
-        if (size == font_size) {
-            clay.text(contents, .{
-                .color = color,
-                .font_id = id,
-                .font_size = @intFromEnum(size),
-                .wrap_mode = .none,
-            });
-            return;
+pub fn textEx(comptime font: Font, comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
+    inline for (comptime enums.values(Font), 0..) |f, i| {
+        inline for (comptime enums.values(FontSize), 0..) |size, j| {
+            if (f == font and size == font_size) {
+                clay.text(contents, .{
+                    .color = color,
+                    .font_id = @intCast(i * enums.values(FontSize).len + j),
+                    .font_size = @intFromEnum(size),
+                    .wrap_mode = .none,
+                });
+                return;
+            }
         }
     }
     comptime unreachable;
@@ -234,11 +237,18 @@ fn render_frame() void {
             })({
                 pointer();
                 if (model.cursor) |cursor_index| {
-                    text(.sm, model.cwd.items[0..cursor_index]);
-                    text_colored(.md, "|", theme.bright_text);
-                    text(.sm, model.cwd.items[cursor_index..]);
+                    textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], theme.text);
+                    clay.ui()(.{
+                        .floating = .{
+                            .offset = .{ .x = @floatFromInt(cursor_index * 9), .y = -2 },
+                            .attachment = .{ .element = .left_center, .parent = .left_center },
+                        },
+                    })({
+                        textEx(.roboto_mono, .md, "|", theme.bright_text);
+                    });
+                    textEx(.roboto_mono, .sm, model.cwd.items[cursor_index..], theme.text);
                 } else {
-                    text(.sm, model.cwd.items);
+                    textEx(.roboto_mono, .sm, model.cwd.items, theme.text);
                 }
             });
 
