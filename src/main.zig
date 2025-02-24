@@ -3,16 +3,13 @@ pub const debug = builtin.mode == .Debug;
 pub const windows = builtin.os.tag == .windows;
 
 const std = @import("std");
+const enums = std.enums;
+const ascii = std.ascii;
 const heap = std.heap;
 const meta = std.meta;
-const mem = std.mem;
-const enums = std.enums;
-const fs = std.fs;
 const log = std.log;
+const fs = std.fs;
 const os = std.os;
-const process = std.process;
-const ascii = std.ascii;
-const time = std.time;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -22,6 +19,7 @@ const rl = @import("raylib");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const hover = @import("hover.zig");
+const alert = @import("alert.zig");
 const Model = @import("Model.zig");
 
 pub const Bytes = std.ArrayListUnmanaged(u8);
@@ -53,11 +51,11 @@ fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }
 
-fn opacity(color: clay.Color, alpha: f32) clay.Color {
+pub fn opacity(color: clay.Color, alpha: f32) clay.Color {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = alpha * 255 };
 }
 
-const theme = .{
+pub const theme = .{
     .alert = rgb(228, 66, 38),
     .text = rgb(205, 214, 244),
     .nav = rgb(43, 43, 58),
@@ -73,17 +71,17 @@ const title_color =
     (@as(os.windows.DWORD, @intFromFloat(theme.base.b)) << 16);
 const dwma_caption_color = 35;
 
-const rounded = clay.CornerRadius.all(6);
+pub const rounded = clay.CornerRadius.all(6);
 
 fn vector_conv(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
 }
 
-fn text(comptime font_size: FontSize, contents: []const u8) void {
+pub fn text(comptime font_size: FontSize, contents: []const u8) void {
     text_colored(font_size, contents, theme.text);
 }
 
-fn text_colored(comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
+pub fn text_colored(comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
     inline for (comptime enums.values(FontSize), 0..) |size, id| {
         if (size == font_size) {
             clay.text(contents, .{
@@ -102,70 +100,6 @@ var cursor = rl.MouseCursor.default;
 
 fn pointer() void {
     if (clay.hovered()) cursor = .pointing_hand;
-}
-
-const error_duration: Millis = 1_500;
-const error_fade_duration: Millis = 300;
-const unexpected_error = "Unexpected Error";
-
-var error_data: struct { timer: Millis, msg: Bytes } = .{ .timer = 0, .msg = .{} };
-
-pub fn updateError(err: anyerror) void {
-    if (err == error.OutOfMemory) process.abort();
-    error_data.timer = error_duration;
-    error_data.msg.clearRetainingCapacity();
-    var writer = error_data.msg.writer(alloc);
-    switch (err) {
-        Model.Error.OsNotSupported => _ = writer.write("Error: OS not yet supported") catch process.abort(),
-        Model.Error.DirAccessDenied => _ = writer.write("Error: Unable to open this folder") catch process.abort(),
-        else => {
-            const err_name = @errorName(err);
-            _ = writer.write("Error: \"") catch process.abort();
-            for (err_name) |c| {
-                if (ascii.isUpper(c)) {
-                    _ = writer.writeByte(' ') catch process.abort();
-                }
-                _ = writer.writeByte(ascii.toLower(c)) catch process.abort();
-            }
-            _ = writer.writeByte('"') catch process.abort();
-        },
-    }
-}
-
-pub fn updateRichError(comptime format: []const u8, args: anytype) void {
-    error_data.timer = error_duration;
-    error_data.msg.clearRetainingCapacity();
-    error_data.msg.writer(alloc).print("Error: " ++ format, args) catch
-        error_data.msg.appendSlice(alloc, unexpected_error) catch process.abort();
-}
-
-fn render_error() void {
-    const delta_ms: Millis = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
-    if (error_data.timer < delta_ms) return;
-    error_data.timer -= delta_ms;
-
-    var alpha: f32 = 1;
-    if (error_data.timer < error_fade_duration) {
-        alpha = @as(f32, @floatFromInt(error_data.timer)) / @as(f32, @floatFromInt(error_fade_duration));
-    }
-
-    clay.ui()(.{
-        .id = clay.id("ErrorModal"),
-        .floating = .{
-            .z_index = 1,
-            .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
-            .offset = .{ .x = -24, .y = -24 },
-            .pointer_capture_mode = .passthrough,
-        },
-        .layout = .{
-            .sizing = .{ .height = clay.Element.Sizing.Axis.fixed(60) },
-            .padding = clay.Padding.horizontal(12),
-            .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
-        },
-        .rectangle = .{ .color = opacity(theme.alert, alpha), .corner_radius = rounded },
-    })({
-        text_colored(.md, error_data.msg.items, opacity(theme.text, alpha));
-    });
 }
 
 pub fn main() !void {
@@ -220,13 +154,13 @@ fn render_frame() void {
         log.debug("{any}\n", .{&model});
     }
     if (rl.isMouseButtonPressed(.side)) {
-        model.open_parent_dir() catch |err| updateError(err);
+        model.open_parent_dir() catch |err| alert.update(err);
     }
 
     const key = rl.getKeyPressed();
     switch (key) {
         .escape => {
-            model.open_parent_dir() catch |err| updateError(err);
+            model.open_parent_dir() catch |err| alert.update(err);
         },
         .up, .down => updown: {
             for (Model.Entries.kinds()) |kind| {
@@ -274,7 +208,7 @@ fn render_frame() void {
         .enter => {
             // TODO also support opening dirs?
             for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
-                if (selected) |_| model.open_file(@intCast(index)) catch |err| updateError(err);
+                if (selected) |_| model.open_file(@intCast(index)) catch |err| alert.update(err);
             }
         },
         .period => _ = model.entries.try_jump('.'),
@@ -307,7 +241,7 @@ fn render_frame() void {
         },
         .rectangle = .{ .color = theme.base },
     })({
-        render_error();
+        alert.render();
 
         clay.ui()(.{
             .id = clay.id("NavBar"),

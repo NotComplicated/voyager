@@ -1,21 +1,17 @@
 const std = @import("std");
-const fs = std.fs;
-const time = std.time;
-const heap = std.heap;
-const fmt = std.fmt;
-const mem = std.mem;
-const meta = std.meta;
-const math = std.math;
-const enums = std.enums;
 const process = std.process;
 const builtin = std.builtin;
+const enums = std.enums;
+const time = std.time;
+const meta = std.meta;
+const math = std.math;
+const fmt = std.fmt;
+const mem = std.mem;
+const fs = std.fs;
 
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const alloc = main.alloc;
-const debug = main.debug;
-const windows = main.windows;
 const Bytes = main.Bytes;
 const Millis = main.Millis;
 
@@ -37,11 +33,11 @@ pub const Error = error{
 
 pub fn init() !Model {
     var model = Model{
-        .cwd = try Bytes.initCapacity(alloc, 1024),
+        .cwd = try Bytes.initCapacity(main.alloc, 1024),
         .entries = .{
             .data = meta.FieldType(Entries, .data).initFill(.{}),
             .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-            .names = try Bytes.initCapacity(alloc, 1024),
+            .names = try Bytes.initCapacity(main.alloc, 1024),
             .sortings = meta.FieldType(Entries, .sortings)
                 .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
             .curr_sorting = .name,
@@ -50,9 +46,9 @@ pub fn init() !Model {
     };
     errdefer model.deinit();
 
-    const path = try fs.realpathAlloc(alloc, ".");
-    defer alloc.free(path);
-    try model.cwd.appendSlice(alloc, path);
+    const path = try fs.realpathAlloc(main.alloc, ".");
+    defer main.alloc.free(path);
+    try model.cwd.appendSlice(main.alloc, path);
 
     try model.entries.load_entries(path);
 
@@ -60,7 +56,7 @@ pub fn init() !Model {
 }
 
 pub fn deinit(model: *Model) void {
-    model.cwd.deinit(alloc);
+    model.cwd.deinit(main.alloc);
     model.entries.deinit();
 }
 
@@ -89,8 +85,8 @@ pub fn select(model: *Model, kind: Entries.Kind, index: Index, action: enum { to
 pub fn open_dir(model: *Model, index: Index) Error!void {
     const name_start, const name_end = model.entries.data_slices.get(.dir).items(.name)[index];
     const name = model.entries.names.items[name_start..name_end];
-    try model.cwd.append(alloc, fs.path.sep);
-    try model.cwd.appendSlice(alloc, name);
+    try model.cwd.append(main.alloc, fs.path.sep);
+    try model.cwd.appendSlice(main.alloc, name);
 
     model.entries.load_entries(model.cwd.items) catch |err| switch (err) {
         Error.DirAccessDenied, Error.OpenDirFailure => {
@@ -111,15 +107,15 @@ pub fn open_parent_dir(model: *Model) Error!void {
 pub fn open_file(model: *const Model, index: Index) Error!void {
     const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
     const name = model.entries.names.items[name_start..name_end];
-    const path = try fs.path.join(alloc, &.{ model.cwd.items, name });
-    defer alloc.free(path);
-    const invoker = if (windows)
+    const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
+    defer main.alloc.free(path);
+    const invoker = if (main.windows)
         .{ "cmd", "/c", "start" }
     else
         return Error.OsNotSupported;
     const argv = invoker ++ .{path};
 
-    var child = process.Child.init(&argv, alloc);
+    var child = process.Child.init(&argv, main.alloc);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
@@ -205,9 +201,9 @@ pub const Entries = struct {
     }
 
     fn deinit(entries: *Entries) void {
-        for (&entries.data.values) |*data| data.deinit(alloc);
-        entries.names.deinit(alloc);
-        for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(alloc);
+        for (&entries.data.values) |*data| data.deinit(main.alloc);
+        entries.names.deinit(main.alloc);
+        for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
     }
 
     pub fn kinds() []const Kind {
@@ -225,7 +221,7 @@ pub const Entries = struct {
         while (iter.next() catch null) |entry| {
             if (entry.name.len == 0) continue;
             const start_index = entries.names.items.len;
-            try entries.names.appendSlice(alloc, entry.name);
+            try entries.names.appendSlice(main.alloc, entry.name);
 
             const is_dir = entry.kind == .directory;
             const metadata = if (is_dir)
@@ -235,7 +231,7 @@ pub const Entries = struct {
 
             const data = entries.data.getPtr(if (is_dir) .dir else .file);
             data.append(
-                alloc,
+                main.alloc,
                 .{
                     .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
                     .selected = null,
@@ -272,7 +268,7 @@ pub const Entries = struct {
             const sort_list = sort_lists.getPtr(kind);
             if (sort_list.items.len == 0) { // non-zero means either already sorted or empty dir
                 const len = entries.data.get(kind).len;
-                try sort_list.ensureTotalCapacity(alloc, len);
+                try sort_list.ensureTotalCapacity(main.alloc, len);
                 for (0..len) |i| sort_list.appendAssumeCapacity(@intCast(i));
 
                 const lessThanFn = struct {

@@ -7,9 +7,7 @@ const clay = @import("clay");
 const PointerState = clay.Pointer.Data.InteractionState;
 
 const main = @import("main.zig");
-const alloc = main.alloc;
-const updateError = main.updateError;
-
+const alert = @import("alert.zig");
 const Model = @import("Model.zig");
 
 pub const EventParams = union(enum) {
@@ -45,7 +43,7 @@ fn OnHover(
             }
         };
 
-        var params_pool = heap.MemoryPool(Param).init(alloc);
+        var params_pool = heap.MemoryPool(Param).init(main.alloc);
         var params_map = std.HashMapUnmanaged(*Param, void, Context, 80){};
 
         fn register(event_param: EventParams) void {
@@ -54,10 +52,10 @@ fn OnHover(
                 else => unreachable,
             };
             const param_ptr = params_map.getKey(&param) orelse param_ptr: {
-                const new_param_ptr = params_pool.create() catch |err| return updateError(err);
+                const new_param_ptr = params_pool.create() catch |err| return alert.update(err);
                 errdefer params_pool.destroy(new_param_ptr);
                 new_param_ptr.* = param;
-                params_map.put(alloc, new_param_ptr, {}) catch |err| return updateError(err);
+                params_map.put(main.alloc, new_param_ptr, {}) catch |err| return alert.update(err);
                 break :param_ptr new_param_ptr;
             };
 
@@ -66,7 +64,7 @@ fn OnHover(
                 param_ptr,
                 struct {
                     inline fn onHover(_: clay.Element.Config.Id, data: clay.Pointer.Data, passed_param: *Param) void {
-                        onHoverFn(data.state, passed_param.*) catch |err| return updateError(err);
+                        onHoverFn(data.state, passed_param.*) catch |err| alert.update(err);
                     }
                 }.onHover,
             );
@@ -74,7 +72,7 @@ fn OnHover(
 
         fn deinit() void {
             params_pool.deinit();
-            params_map.deinit(alloc);
+            params_map.deinit(main.alloc);
         }
     };
 }
