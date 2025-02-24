@@ -29,8 +29,8 @@ pub fn update(err: anyerror) void {
         else => {
             const err_name = @errorName(err);
             _ = writer.write("Error: \"") catch process.abort();
-            for (err_name) |c| {
-                if (ascii.isUpper(c)) {
+            for (err_name, 0..) |c, i| {
+                if (ascii.isUpper(c) and i != 0) {
                     _ = writer.writeByte(' ') catch process.abort();
                 }
                 _ = writer.writeByte(ascii.toLower(c)) catch process.abort();

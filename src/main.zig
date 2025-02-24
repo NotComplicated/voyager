@@ -19,6 +19,7 @@ const rl = @import("raylib");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const hover = @import("hover.zig");
+const EventParam = hover.EventParam;
 const alert = @import("alert.zig");
 const Model = @import("Model.zig");
 
@@ -255,43 +256,29 @@ fn render_frame() void {
         })({
             const nav_size = 30;
 
-            var id = clay.id("ToParent");
-            clay.ui()(.{
-                .id = id,
-                .layout = .{
-                    .sizing = clay.Element.Sizing.fixed(nav_size),
-                },
-                .image = .{
-                    .image_data = &resources.images.arrow_up,
-                    .source_dimensions = clay.Dimensions.square(nav_size),
-                },
-                .rectangle = .{
-                    .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
-                    .corner_radius = rounded,
-                },
-            })({
-                pointer();
-                hover.on(.parent);
-            });
+            const navButton = struct {
+                fn navButton(name: []const u8, param: EventParam, icon: *rl.Texture) void {
+                    const id = clay.id(name);
+                    clay.ui()(.{
+                        .id = id,
+                        .layout = .{ .sizing = clay.Element.Sizing.fixed(nav_size) },
+                        .image = .{
+                            .image_data = icon,
+                            .source_dimensions = clay.Dimensions.square(nav_size),
+                        },
+                        .rectangle = .{
+                            .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
+                            .corner_radius = rounded,
+                        },
+                    })({
+                        pointer();
+                        hover.on(param);
+                    });
+                }
+            }.navButton;
 
-            id = clay.id("Refresh");
-            clay.ui()(.{
-                .id = id,
-                .layout = .{
-                    .sizing = clay.Element.Sizing.fixed(nav_size),
-                },
-                .image = .{
-                    .image_data = &resources.images.refresh,
-                    .source_dimensions = clay.Dimensions.square(nav_size),
-                },
-                .rectangle = .{
-                    .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
-                    .corner_radius = rounded,
-                },
-            })({
-                pointer();
-                hover.on(.refresh);
-            });
+            navButton("Parent", .parent, &resources.images.arrow_up);
+            navButton("Refresh", .refresh, &resources.images.refresh);
 
             clay.ui()(.{
                 .id = clay.id("CurrentDir"),
@@ -307,6 +294,8 @@ fn render_frame() void {
                 pointer();
                 text(.sm, model.cwd.items);
             });
+
+            navButton("VsCode", .vscode, &resources.images.vscode);
         });
 
         clay.ui()(.{
@@ -367,6 +356,7 @@ fn render_frame() void {
                                 .layout = .{
                                     .padding = .{ .top = 4, .bottom = 4, .left = 8 },
                                     .sizing = .{ .width = .{ .type = .grow } },
+                                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
                                     .child_gap = 4,
                                 },
                                 .rectangle = .{
@@ -407,9 +397,7 @@ fn render_frame() void {
 
                                 clay.ui()(.{
                                     .id = clay.idi(kind_name ++ "EntryName", entry.index),
-                                    .layout = .{
-                                        .padding = clay.Padding.all(6),
-                                    },
+                                    .layout = .{ .padding = clay.Padding.all(6) },
                                 })({
                                     text(.sm, entry.name);
                                 });

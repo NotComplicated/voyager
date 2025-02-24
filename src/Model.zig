@@ -123,6 +123,21 @@ pub fn open_file(model: *const Model, index: Index) Error!void {
     _ = try child.spawnAndWait();
 }
 
+pub fn open_vscode(model: *const Model) Error!void {
+    const invoker = if (main.windows)
+        .{ "cmd", "/c", "code" }
+    else
+        return Error.OsNotSupported;
+    const argv = invoker ++ .{model.cwd.items};
+
+    var child = process.Child.init(&argv, main.alloc);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    child.cwd = model.cwd.items;
+    _ = try child.spawnAndWait();
+}
+
 pub const Entries = struct {
     data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
     data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),

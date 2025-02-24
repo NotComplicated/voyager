@@ -10,12 +10,13 @@ const main = @import("main.zig");
 const alert = @import("alert.zig");
 const Model = @import("Model.zig");
 
-pub const EventParams = union(enum) {
+pub const EventParam = union(enum) {
     entry: struct { Model.Entries.Kind, Model.Index },
     parent,
     refresh,
+    vscode,
 };
-const Event = meta.Tag(EventParams);
+const Event = meta.Tag(EventParam);
 
 // This cursed function tries to get around the clay limitation where
 // Clay_OnHover only accepts an *anyopaque with an unpredictable lifetime.
@@ -23,9 +24,9 @@ const Event = meta.Tag(EventParams);
 // store params and HashMap to recycle previously created params.
 fn OnHover(
     comptime event: Event,
-    onHoverFn: fn (PointerState, meta.TagPayload(EventParams, event)) anyerror!void,
+    onHoverFn: fn (PointerState, meta.TagPayload(EventParam, event)) anyerror!void,
 ) type {
-    const Param = meta.TagPayload(EventParams, event);
+    const Param = meta.TagPayload(EventParam, event);
 
     return struct {
         const hover_event = event;
@@ -46,7 +47,7 @@ fn OnHover(
         var params_pool = heap.MemoryPool(Param).init(main.alloc);
         var params_map = std.HashMapUnmanaged(*Param, void, Context, 80){};
 
-        fn register(event_param: EventParams) void {
+        fn register(event_param: EventParam) void {
             var param = switch (event_param) {
                 inline event => |payload| payload,
                 else => unreachable,
@@ -81,9 +82,10 @@ const onHovers: [enums.values(Event).len]type = .{
     OnHover(.entry, onEntryHover),
     OnHover(.parent, onParentHover),
     OnHover(.refresh, onRefreshHover),
+    OnHover(.vscode, onVscodeHover),
 };
 
-pub fn on(param: EventParams) void {
+pub fn on(param: EventParam) void {
     inline for (onHovers) |onHover| {
         if (onHover.hover_event == meta.activeTag(param)) {
             onHover.register(param);
@@ -115,5 +117,11 @@ fn onParentHover(state: PointerState, _: void) !void {
 fn onRefreshHover(state: PointerState, _: void) !void {
     if (state == .pressed_this_frame) {
         try main.model.entries.load_entries(main.model.cwd.items);
+    }
+}
+
+fn onVscodeHover(state: PointerState, _: void) !void {
+    if (state == .pressed_this_frame) {
+        try main.model.open_vscode();
     }
 }
