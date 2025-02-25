@@ -1,7 +1,7 @@
 const std = @import("std");
+const enums = std.enums;
 const heap = std.heap;
 const meta = std.meta;
-const enums = std.enums;
 
 const clay = @import("clay");
 const PointerState = clay.Pointer.Data.InteractionState;
@@ -65,8 +65,8 @@ fn OnHover(
                 Param,
                 param_ptr,
                 struct {
-                    inline fn onHover(_: clay.Element.Config.Id, data: clay.Pointer.Data, passed_param: *Param) void {
-                        onHoverFn(data.state, passed_param.*) catch |err| alert.update(err);
+                    inline fn onHover(_: clay.Element.Config.Id, pointer_data: clay.Pointer.Data, passed_param: *Param) void {
+                        onHoverFn(pointer_data.state, passed_param.*) catch |err| alert.update(err);
                     }
                 }.onHover,
             );
@@ -103,6 +103,7 @@ pub fn deinit() void {
     }
 }
 
+// Use this handler when sending an unfocus message to everything except whatever is focused.
 fn onFocus(state: PointerState, focus: meta.TagPayload(EventParam, .focus)) !void {
     if (state == .pressed_this_frame) {
         main.model.exitEditing();

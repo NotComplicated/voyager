@@ -4,7 +4,6 @@ const ascii = std.ascii;
 const time = std.time;
 
 const clay = @import("clay");
-
 const rl = @import("raylib");
 
 const main = @import("main.zig");
@@ -47,6 +46,13 @@ pub fn updateFmt(comptime format: []const u8, args: anytype) void {
     alert.msg.clearRetainingCapacity();
     alert.msg.writer(main.alloc).print("Error: " ++ format, args) catch
         alert.msg.appendSlice(main.alloc, unexpected_error) catch process.abort();
+}
+
+pub inline fn updateClay(err_data: clay.Error.Data) void {
+    alert.timer = error_duration;
+    alert.msg.clearRetainingCapacity();
+    alert.msg.appendSlice(main.alloc, "Error: ") catch process.abort();
+    alert.msg.appendSlice(main.alloc, err_data.error_text) catch process.abort();
 }
 
 pub fn render() void {

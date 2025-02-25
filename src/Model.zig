@@ -1,32 +1,29 @@
 const std = @import("std");
 const process = std.process;
-const builtin = std.builtin;
-const ascii = std.ascii;
-const enums = std.enums;
 const time = std.time;
 const meta = std.meta;
-const math = std.math;
 const fmt = std.fmt;
+const log = std.log;
 const mem = std.mem;
 const fs = std.fs;
 
 const clay = @import("clay");
-
 const rl = @import("raylib");
 
 const main = @import("main.zig");
 const Bytes = main.Bytes;
 const Millis = main.Millis;
+const Message = @import("message.zig").Message;
+const Input = @import("Input.zig");
+const Entries = @import("Entries.zig");
 
 cwd: Bytes,
-cursor: ?Index,
 entries: Entries,
 
 const Model = @This();
 
-pub const Index = u16;
-
 const double_click: Millis = 300;
+const max_paste_len: usize = 1024;
 
 pub const Error = error{
     OsNotSupported,
@@ -65,223 +62,446 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
-pub fn enterEditing(model: *Model) void {
-    model.cursor = @intCast(model.cwd.items.len);
-}
-
-pub fn exitEditing(model: *Model) void {
-    model.cursor = null;
-}
-
-pub fn handleKeyboard(model: *Model) Error!void {
-    const key = rl.getKeyPressed();
-    const shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
-    const ctrl = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
-    const key_int = @intFromEnum(key);
-    const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
-    const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
-        @intCast(key_int)
-    else if (320 <= key_int and key_int <= 329) // numpad
-        @intCast(key_int - (320 - 48))
-    else
-        null;
-    const as_punc: ?u8 = switch (key) {
-        .apostrophe => '\'',
-        .comma => ',',
-        .minus => '-',
-        .period => '.',
-        .slash => '/',
-        .semicolon => ';',
-        .equal => '=',
-        .space => ' ',
-        .left_bracket => '[',
-        .backslash => '\\',
-        .right_bracket => ']',
-        .grave => '`',
-        else => null,
-    };
-
-    if (model.cursor) |*cursor_index| {
-        switch (key) {
-            .backspace => {
-                if (ctrl) {
-                    const last_index = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
-                    const del_until: Index = @intCast(last_index orelse 0);
-                    model.cwd.replaceRangeAssumeCapacity(del_until, cursor_index.* - del_until, "");
-                    cursor_index.* = del_until;
-                } else if (cursor_index.* > 0) {
-                    _ = model.cwd.orderedRemove(cursor_index.* - 1);
-                    cursor_index.* -= 1;
-                }
-            },
-            .delete => if (cursor_index.* < model.cwd.items.len) {
-                _ = model.cwd.orderedRemove(cursor_index.*);
-            },
-            .tab, .escape => model.exitEditing(),
-            .enter => try model.entries.load_entries(model.cwd.items),
-            .up, .home => cursor_index.* = 0,
-            .down, .end => cursor_index.* = @intCast(model.cwd.items.len),
-            .left => {
-                if (ctrl) {
-                    const maybe_prev_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
-                    if (maybe_prev_sep) |prev_sep| {
-                        const prev_sep_index: Index = @intCast(prev_sep);
-                        if (cursor_index.* == prev_sep_index + 1) {
-                            cursor_index.* -= 1;
-                        } else {
-                            cursor_index.* = prev_sep_index + 1;
-                        }
-                    } else {
-                        cursor_index.* = 0;
-                    }
-                } else if (cursor_index.* > 0) {
-                    cursor_index.* -= 1;
-                }
-            },
-            .right => {
-                if (ctrl) {
-                    const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
-                    if (maybe_next_sep) |next_sep| {
-                        const next_sep_index: Index = @intCast(next_sep);
-                        if (cursor_index.* == next_sep_index) {
-                            cursor_index.* += 1;
-                        } else {
-                            cursor_index.* = next_sep_index;
-                        }
-                    } else {
-                        cursor_index.* = @intCast(model.cwd.items.len);
-                    }
-                } else if (cursor_index.* < model.cwd.items.len) {
-                    cursor_index.* += 1;
-                }
-            },
-
-            else => {
-                const maybe_char: ?u8 = if (as_alpha) |alpha|
-                    if (!shift) ascii.toLower(alpha) else alpha
-                else if (as_num) |num|
-                    if (shift) switch (num) {
-                        '1' => '!',
-                        '2' => '@',
-                        '3' => '#',
-                        '4' => '$',
-                        '5' => '%',
-                        '6' => '^',
-                        '7' => '&',
-                        '8' => '*',
-                        '9' => '(',
-                        '0' => ')',
-                        else => unreachable,
-                    } else num
-                else if (as_punc) |punc|
-                    if (shift) switch (punc) {
-                        '\'' => '"',
-                        ',' => '<',
-                        '-' => '_',
-                        '.' => '>',
-                        '/' => '?',
-                        ';' => ':',
-                        '=' => '+',
-                        ' ' => ' ',
-                        '[' => '{',
-                        '\\' => '|',
-                        ']' => '}',
-                        '`' => '~',
-                        else => unreachable,
-                    } else punc
-                else
-                    null;
-
-                if (maybe_char) |char| {
-                    if (ctrl) {
-                        switch (char) {
-                            'c' => {
-                                try model.cwd.append(main.alloc, 0);
-                                defer _ = model.cwd.pop();
-                                rl.setClipboardText(@ptrCast(model.cwd.items.ptr));
-                            },
-                            'v' => {
-                                const clipboard = mem.span(rl.getClipboardText());
-                                try model.cwd.insertSlice(main.alloc, cursor_index.*, clipboard);
-                                cursor_index.* += @intCast(clipboard.len);
-                            },
-                            else => {},
-                        }
-                    } else {
-                        try model.cwd.insert(main.alloc, cursor_index.*, char);
-                        cursor_index.* += 1;
-                    }
-                }
-            },
-        }
-    } else {
-        switch (key) {
-            .escape => {
-                try model.open_parent_dir();
-            },
-            .up, .down => updown: {
-                for (Model.Entries.kinds()) |kind| {
-                    var sorted = model.entries.sorted(kind, &.{.selected});
-                    var sorted_index: Model.Index = 0;
-                    while (sorted.next()) |entry| : (sorted_index += 1) {
-                        if (entry.selected != null) {
-                            // TODO handle going from one kind to the other
-                            // TODO how to get next/prev?
-                            // if (key == .up and sorted_index > 0) {
-                            //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
-                            //     break :updown;
-                            // } else if (key == .down and sort_index < sort_list.len - 1) {
-                            //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
-                            //     break :updown;
-                            // }
-                            break :updown;
-                        }
-                    }
-                }
-                if (key == .down) {
-                    // TODO bounds check the 0
-                    // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-                    //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-                    //     else => updateError(err),
-                    // };
-                    clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-                }
-            },
-            // TODO select_top() / select_bottom() ?
-            .home => {
-                // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-                //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-                //     else => updateError(err),
-                // };
-                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-            },
-            .end => {
-                // TODO
-                // if (model.entries.list.len > 0) {
-                //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
-                // }
-                clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
-            },
-            .enter => {
-                // TODO also support opening dirs?
-                for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
-                    if (selected) |_| try model.open_file(@intCast(index));
-                }
-            },
-            .period => _ = model.entries.try_jump('.'),
-            else => {},
-        }
-
-        // jump to entries when typing letters/numbers
-        if (as_alpha) |alpha| {
-            if (model.entries.try_jump(alpha) == .not_found) {
-                _ = model.entries.try_jump(ascii.toUpper(alpha));
-            }
-        } else if (as_num) |num| {
-            _ = model.entries.try_jump(num);
-        }
+pub fn handleInput(model: Model, input: Input) ?Message {
+    if (main.debug and input.action == .{ .mouse = .{ .state = .pressed, .button = .middle } }) {
+        log.debug("{any}\n", .{&model});
+    }
+    if (input.action == .{ .mouse = .{ .state = .pressed, .button = .side } }) {
+        return .{.parent};
     }
 }
+
+pub fn handleMessage(model: *Model, message: Message) Error!void {
+    _ = model;
+    _ = message;
+}
+
+pub fn render(model: Model) void {
+    clay.ui()(.{
+        .id = clay.id("NavBar"),
+        .layout = .{
+            .padding = clay.Padding.all(10),
+            .sizing = .{
+                .width = .{ .type = .grow },
+            },
+            .child_gap = 10,
+        },
+    })({
+        const nav_size = 30;
+
+        const navButton = struct {
+            fn f(name: []const u8, param: EventParam, icon: *rl.Texture) void {
+                const id = clay.id(name);
+                clay.ui()(.{
+                    .id = id,
+                    .layout = .{ .sizing = clay.Element.Sizing.fixed(nav_size) },
+                    .image = .{
+                        .image_data = icon,
+                        .source_dimensions = clay.Dimensions.square(nav_size),
+                    },
+                    .rectangle = .{
+                        .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
+                        .corner_radius = rounded,
+                    },
+                })({
+                    pointer();
+                    hover.on(param);
+                });
+            }
+        }.f;
+
+        navButton("Parent", .parent, &resources.images.arrow_up);
+        navButton("Refresh", .refresh, &resources.images.refresh);
+
+        clay.ui()(.{
+            .id = clay.id("CurrentDir"),
+            .layout = .{
+                .padding = clay.Padding.all(6),
+                .sizing = .{
+                    .width = .{ .type = .grow },
+                    .height = clay.Element.Sizing.Axis.fixed(nav_size),
+                },
+                .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+            },
+            .rectangle = .{
+                .color = if (model.cursor) |_| theme.selected else theme.nav,
+                .corner_radius = rounded,
+            },
+        })({
+            pointer();
+            if (model.cursor) |cursor_index| {
+                textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], theme.text);
+                clay.ui()(.{
+                    .floating = .{
+                        .offset = .{ .x = @floatFromInt(cursor_index * 9), .y = -2 },
+                        .attachment = .{ .element = .left_center, .parent = .left_center },
+                    },
+                })({
+                    textEx(.roboto_mono, .md, "|", theme.bright_text);
+                });
+                textEx(.roboto_mono, .sm, model.cwd.items[cursor_index..], theme.text);
+            } else {
+                textEx(.roboto_mono, .sm, model.cwd.items, theme.text);
+            }
+        });
+
+        navButton("VsCode", .vscode, &resources.images.vscode);
+    });
+
+    clay.ui()(.{
+        .id = clay.id("Content"),
+        .layout = .{
+            .sizing = clay.Element.Sizing.grow(.{}),
+        },
+        .rectangle = .{ .color = theme.mantle },
+    })({
+        const shortcut_width = 260; // TODO customizable
+
+        clay.ui()(.{
+            .id = clay.id("ShortcutsContainer"),
+            .layout = .{
+                .padding = clay.Padding.all(10),
+                .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
+            },
+        })({
+            clay.ui()(.{
+                .id = clay.id("Shortcuts"),
+                .layout = .{
+                    .layout_direction = .top_to_bottom,
+                    .padding = clay.Padding.all(16),
+                },
+            })({
+                text(.sm, "Shortcuts will go here");
+            });
+        });
+
+        clay.ui()(.{
+            .id = clay.id("EntriesContainer"),
+            .layout = .{
+                .padding = clay.Padding.all(10),
+                .sizing = clay.Element.Sizing.grow(.{}),
+            },
+        })({
+            clay.ui()(.{
+                .id = clay.id("Entries"),
+                .layout = .{
+                    .layout_direction = .top_to_bottom,
+                    .padding = clay.Padding.all(10),
+                    .sizing = clay.Element.Sizing.grow(.{}),
+                    .child_gap = 4,
+                },
+                .scroll = .{ .vertical = true },
+                .rectangle = .{ .color = theme.base, .corner_radius = rounded },
+            })({
+                inline for (comptime Model.Entries.kinds()) |kind| {
+                    var kind_name = @tagName(kind).*;
+                    kind_name[0] = ascii.toUpper(kind_name[0]);
+
+                    var sorted = model.entries.sorted(kind, &.{ .name, .selected });
+                    var sorted_index: Model.Index = 0;
+                    while (sorted.next()) |entry| : (sorted_index += 1) {
+                        const id = clay.idi(kind_name ++ "Entry", entry.index);
+                        clay.ui()(.{
+                            .id = id,
+                            .layout = .{
+                                .padding = .{ .top = 4, .bottom = 4, .left = 8 },
+                                .sizing = .{ .width = .{ .type = .grow } },
+                                .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                                .child_gap = 4,
+                            },
+                            .rectangle = .{
+                                .color = if (entry.selected) |_|
+                                    theme.selected
+                                else if (clay.pointerOver(id))
+                                    theme.hovered
+                                else
+                                    theme.base,
+                                .corner_radius = rounded,
+                            },
+                        })({
+                            pointer();
+                            hover.on(.{ .entry = .{ kind, entry.index } });
+
+                            const icon_image = if (kind == .dir)
+                                if (clay.hovered()) &resources.images.folder_open else &resources.images.folder
+                            else
+                                resources.get_file_icon(entry.name);
+
+                            clay.ui()(.{
+                                .id = clay.idi(kind_name ++ "EntryIconContainer", entry.index),
+                                .layout = .{
+                                    .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
+                                },
+                            })({
+                                clay.ui()(.{
+                                    .id = clay.idi(kind_name ++ "EntryIcon", entry.index),
+                                    .layout = .{
+                                        .sizing = clay.Element.Sizing.grow(.{}),
+                                    },
+                                    .image = .{
+                                        .image_data = icon_image,
+                                        .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
+                                    },
+                                })({});
+                            });
+
+                            clay.ui()(.{
+                                .id = clay.idi(kind_name ++ "EntryName", entry.index),
+                                .layout = .{ .padding = clay.Padding.all(6) },
+                            })({
+                                text(.sm, entry.name);
+                            });
+                        });
+                    }
+                }
+            });
+        });
+    });
+}
+
+// TODO
+// pub fn enterEditing(model: *Model) void {
+//     model.cursor = @intCast(model.cwd.items.len);
+// }
+
+// pub fn exitEditing(model: *Model) void {
+//     model.cursor = null;
+// }
+
+// pub fn handleKey(model: *Model) Error!void {
+//     const key = rl.getKeyPressed();
+//     const shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+//     const ctrl = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
+//     const key_int = @intFromEnum(key);
+//     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
+//     const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
+//         @intCast(key_int)
+//     else if (320 <= key_int and key_int <= 329) // numpad
+//         @intCast(key_int - (320 - 48))
+//     else
+//         null;
+//     const as_punc: ?u8 = switch (key) {
+//         .apostrophe => '\'',
+//         .comma => ',',
+//         .minus => '-',
+//         .period => '.',
+//         .slash => '/',
+//         .semicolon => ';',
+//         .equal => '=',
+//         .space => ' ',
+//         .left_bracket => '[',
+//         .backslash => '\\',
+//         .right_bracket => ']',
+//         .grave => '`',
+//         else => null,
+//     };
+
+//     if (model.cursor) |*cursor_index| {
+//         switch (key) {
+//             .backspace => {
+//                 if (ctrl) {
+//                     const maybe_last_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
+//                     if (maybe_last_sep) |last_sep| {
+//                         const last_sep_index: Index = @intCast(last_sep);
+//                         if (cursor_index.* == last_sep_index + 1) {
+//                             cursor_index.* -= 1;
+//                             _ = model.cwd.orderedRemove(cursor_index.*);
+//                         } else {
+//                             model.cwd.replaceRangeAssumeCapacity(last_sep_index, cursor_index.* - last_sep_index, "");
+//                             cursor_index.* = last_sep_index;
+//                         }
+//                     } else {
+//                         model.cwd.shrinkRetainingCapacity(0);
+//                         cursor_index.* = 0;
+//                     }
+//                 } else if (cursor_index.* > 0) {
+//                     _ = model.cwd.orderedRemove(cursor_index.* - 1);
+//                     cursor_index.* -= 1;
+//                 }
+//             },
+//             .delete => if (cursor_index.* < model.cwd.items.len) {
+//                 if (ctrl) {
+//                     const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
+//                     if (maybe_next_sep) |next_sep| {
+//                         const next_sep_index: Index = @intCast(next_sep);
+//                         if (cursor_index.* == next_sep_index) {
+//                             _ = model.cwd.orderedRemove(cursor_index.*);
+//                         } else {
+//                             model.cwd.replaceRangeAssumeCapacity(cursor_index.*, next_sep_index - cursor_index.*, "");
+//                         }
+//                     } else {
+//                         model.cwd.shrinkRetainingCapacity(cursor_index.*);
+//                     }
+//                 } else {
+//                     _ = model.cwd.orderedRemove(cursor_index.*);
+//                 }
+//             },
+//             .tab, .escape => model.exitEditing(),
+//             .enter => try model.entries.load_entries(model.cwd.items),
+//             .up, .home => cursor_index.* = 0,
+//             .down, .end => cursor_index.* = @intCast(model.cwd.items.len),
+//             .left => {
+//                 if (ctrl) {
+//                     const maybe_prev_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
+//                     if (maybe_prev_sep) |prev_sep| {
+//                         const prev_sep_index: Index = @intCast(prev_sep);
+//                         if (cursor_index.* == prev_sep_index + 1) {
+//                             cursor_index.* -= 1;
+//                         } else {
+//                             cursor_index.* = prev_sep_index + 1;
+//                         }
+//                     } else {
+//                         cursor_index.* = 0;
+//                     }
+//                 } else if (cursor_index.* > 0) {
+//                     cursor_index.* -= 1;
+//                 }
+//             },
+//             .right => {
+//                 if (ctrl) {
+//                     const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
+//                     if (maybe_next_sep) |next_sep| {
+//                         const next_sep_index: Index = @intCast(next_sep);
+//                         if (cursor_index.* == next_sep_index) {
+//                             cursor_index.* += 1;
+//                         } else {
+//                             cursor_index.* = next_sep_index;
+//                         }
+//                     } else {
+//                         cursor_index.* = @intCast(model.cwd.items.len);
+//                     }
+//                 } else if (cursor_index.* < model.cwd.items.len) {
+//                     cursor_index.* += 1;
+//                 }
+//             },
+
+//             else => {
+//                 const maybe_char: ?u8 = if (as_alpha) |alpha|
+//                     if (!shift) ascii.toLower(alpha) else alpha
+//                 else if (as_num) |num|
+//                     if (shift) switch (num) {
+//                         '1' => '!',
+//                         '2' => '@',
+//                         '3' => '#',
+//                         '4' => '$',
+//                         '5' => '%',
+//                         '6' => '^',
+//                         '7' => '&',
+//                         '8' => '*',
+//                         '9' => '(',
+//                         '0' => ')',
+//                         else => unreachable,
+//                     } else num
+//                 else if (as_punc) |punc|
+//                     if (shift) switch (punc) {
+//                         '\'' => '"',
+//                         ',' => '<',
+//                         '-' => '_',
+//                         '.' => '>',
+//                         '/' => '?',
+//                         ';' => ':',
+//                         '=' => '+',
+//                         ' ' => ' ',
+//                         '[' => '{',
+//                         '\\' => '|',
+//                         ']' => '}',
+//                         '`' => '~',
+//                         else => unreachable,
+//                     } else punc
+//                 else
+//                     null;
+
+//                 if (maybe_char) |char| {
+//                     if (ctrl) {
+//                         switch (char) {
+//                             'c' => {
+//                                 try model.cwd.append(main.alloc, 0);
+//                                 defer _ = model.cwd.pop();
+//                                 rl.setClipboardText(@ptrCast(model.cwd.items.ptr));
+//                             },
+//                             'v' => {
+//                                 var clipboard: []const u8 = mem.span(rl.getClipboardText());
+//                                 if (clipboard.len > max_paste_len) clipboard = clipboard[0..max_paste_len]; // TODO cull large cwd
+//                                 try model.cwd.insertSlice(main.alloc, cursor_index.*, clipboard);
+//                                 cursor_index.* += @intCast(clipboard.len);
+//                             },
+//                             else => {},
+//                         }
+//                     } else {
+//                         try model.cwd.insert(main.alloc, cursor_index.*, char);
+//                         cursor_index.* += 1;
+//                     }
+//                 }
+//             },
+//         }
+//     } else {
+//         switch (key) {
+//             .escape => {
+//                 try model.open_parent_dir();
+//             },
+//             .up, .down => updown: {
+//                 for (Model.Entries.kinds()) |kind| {
+//                     var sorted = model.entries.sorted(kind, &.{.selected});
+//                     var sorted_index: Model.Index = 0;
+//                     while (sorted.next()) |entry| : (sorted_index += 1) {
+//                         if (entry.selected != null) {
+//                             // TODO handle going from one kind to the other
+//                             // TODO how to get next/prev?
+//                             // if (key == .up and sorted_index > 0) {
+//                             //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
+//                             //     break :updown;
+//                             // } else if (key == .down and sort_index < sort_list.len - 1) {
+//                             //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
+//                             //     break :updown;
+//                             // }
+//                             break :updown;
+//                         }
+//                     }
+//                 }
+//                 if (key == .down) {
+//                     // TODO bounds check the 0
+//                     // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+//                     //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+//                     //     else => updateError(err),
+//                     // };
+//                     clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
+//                 }
+//             },
+//             // TODO select_top() / select_bottom() ?
+//             .home => {
+//                 // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
+//                 //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
+//                 //     else => updateError(err),
+//                 // };
+//                 clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
+//             },
+//             .end => {
+//                 // TODO
+//                 // if (model.entries.list.len > 0) {
+//                 //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
+//                 // }
+//                 clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
+//             },
+//             .enter => {
+//                 // TODO also support opening dirs?
+//                 for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
+//                     if (selected) |_| try model.open_file(@intCast(index));
+//                 }
+//             },
+//             .period => _ = model.entries.try_jump('.'),
+//             else => {},
+//         }
+
+//         // jump to entries when typing letters/numbers
+//         if (as_alpha) |alpha| {
+//             if (model.entries.try_jump(alpha) == .not_found) {
+//                 _ = model.entries.try_jump(ascii.toUpper(alpha));
+//             }
+//         } else if (as_num) |num| {
+//             _ = model.entries.try_jump(num);
+//         }
+//     }
+// }
 
 pub fn select(model: *Model, kind: Entries.Kind, index: Index, action: enum { touch, try_open }) Error!void {
     const selected = model.entries.data_slices.get(kind).items(.selected);
@@ -360,217 +580,6 @@ pub fn open_vscode(model: *const Model) Error!void {
     child.cwd = model.cwd.items;
     _ = try child.spawnAndWait();
 }
-
-pub const Entries = struct {
-    data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
-    data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
-    names: Bytes,
-    sortings: std.EnumArray(Sorting, std.EnumArray(Kind, std.ArrayListUnmanaged(Index))),
-    curr_sorting: Sorting,
-    sort_type: enum { asc, desc },
-
-    pub const Kind = enum {
-        dir,
-        file,
-    };
-
-    const Sorting = enum {
-        name,
-        ext,
-        created,
-        modified,
-        size,
-    };
-
-    const Entry = struct {
-        name: [2]u32,
-        selected: ?Millis, // TODO replace with more naive frame calculation?
-        created: ?Millis,
-        modified: Millis,
-        size: u64,
-        readonly: bool,
-    };
-
-    fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
-        const entry_fields = @typeInfo(Entry).Struct.fields;
-        var item_fields: [entry_fields.len + 1]builtin.Type.StructField = undefined;
-        var item_field_index = 0;
-        for (entry_fields) |entry_field| {
-            for (fields) |field| {
-                if (mem.eql(u8, @tagName(field), entry_field.name)) {
-                    item_fields[item_field_index] = entry_field;
-                    if (field == .name) {
-                        item_fields[item_field_index].type = []const u8;
-                    }
-                    item_field_index += 1;
-                    break;
-                }
-            }
-        }
-        item_fields[item_field_index] = .{
-            .name = "index",
-            .type = Index,
-            .default_value = null,
-            .is_comptime = false,
-            .alignment = @alignOf(Entry),
-        };
-        item_field_index += 1;
-        var item_type = @typeInfo(Entry);
-        item_type.Struct.fields = item_fields[0..item_field_index];
-        const Item = @Type(item_type);
-
-        return struct {
-            sort_list: []const Index,
-            slice: std.MultiArrayList(Entry).Slice,
-            names: []const u8,
-
-            pub fn next(self: *@This()) ?Item {
-                if (self.sort_list.len == 0) return null;
-                var item: Item = undefined;
-                inline for (fields) |field| {
-                    const value = self.slice.items(field)[self.sort_list[0]];
-                    @field(item, @tagName(field)) = if (field == .name) self.names[value[0]..value[1]] else value;
-                }
-                item.index = self.sort_list[0];
-                self.sort_list = self.sort_list[1..];
-                return item;
-            }
-        };
-    }
-
-    fn deinit(entries: *Entries) void {
-        for (&entries.data.values) |*data| data.deinit(main.alloc);
-        entries.names.deinit(main.alloc);
-        for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
-    }
-
-    pub fn kinds() []const Kind {
-        return enums.values(Kind);
-    }
-
-    pub fn load_entries(entries: *Entries, cwd: []const u8) Error!void {
-        if (!fs.path.isAbsolute(cwd)) return Error.OpenDirFailure;
-        const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch |err|
-            return if (err == error.AccessDenied) Error.DirAccessDenied else Error.OpenDirFailure;
-
-        for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
-        entries.names.clearRetainingCapacity();
-        for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.clearRetainingCapacity();
-
-        var iter = dir.iterate();
-        while (iter.next() catch null) |entry| {
-            if (entry.name.len == 0) continue;
-            const start_index = entries.names.items.len;
-            try entries.names.appendSlice(main.alloc, entry.name);
-
-            const is_dir = entry.kind == .directory;
-            const metadata = if (is_dir)
-                (dir.openDir(entry.name, .{ .access_sub_paths = false }) catch continue).metadata() catch continue
-            else
-                (dir.openFile(entry.name, .{}) catch continue).metadata() catch continue;
-
-            const data = entries.data.getPtr(if (is_dir) .dir else .file);
-            data.append(
-                main.alloc,
-                .{
-                    .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
-                    .selected = null,
-                    .created = if (metadata.created()) |created| nanos_to_millis(created) else null,
-                    .modified = nanos_to_millis(metadata.modified()),
-                    .size = metadata.size(),
-                    .readonly = metadata.permissions().readOnly(),
-                },
-            ) catch break;
-            if (data.len == math.maxInt(Index)) break;
-        }
-
-        for (entries.data.values, &entries.data_slices.values) |data, *data_slice| data_slice.* = data.slice();
-        try entries.sort(.name);
-        entries.sort_type = .asc;
-    }
-
-    fn nanos_to_millis(nanos: i128) Millis {
-        return @intCast(@divFloor(nanos, time.ns_per_ms));
-    }
-
-    pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
-        return .{
-            .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
-            .slice = entries.data_slices.get(kind),
-            .names = entries.names.items,
-        };
-    }
-
-    pub fn sort(entries: *Entries, comptime sorting: Sorting) Error!void {
-        const sort_lists = entries.sortings.getPtr(sorting);
-
-        inline for (comptime kinds()) |kind| {
-            const sort_list = sort_lists.getPtr(kind);
-            if (sort_list.items.len == 0) { // non-zero means either already sorted or empty dir
-                const len = entries.data.get(kind).len;
-                try sort_list.ensureTotalCapacity(main.alloc, len);
-                for (0..len) |i| sort_list.appendAssumeCapacity(@intCast(i));
-
-                const lessThanFn = struct {
-                    fn cmp(passed_entries: *const Entries, lhs: Index, rhs: Index) bool {
-                        switch (sorting) {
-                            .name => {
-                                const lhs_start, const lhs_end = passed_entries.data_slices.get(kind).items(.name)[lhs];
-                                const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
-                                const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
-                                const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                                return mem.lessThan(u8, lhs_name, rhs_name);
-                            },
-                            .ext => {
-                                const lhs_start, const lhs_end = passed_entries.data_slices.get(kind).items(.name)[lhs];
-                                const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
-                                const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
-                                const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                                return mem.lessThan(u8, fs.path.extension(lhs_name), fs.path.extension(rhs_name));
-                            },
-                            .created => {
-                                const created = passed_entries.data_slices.get(kind).items(.created);
-                                return created[lhs] < created[rhs];
-                            },
-                            .modified => {
-                                const modified = passed_entries.data_slices.get(kind).items(.modified);
-                                return modified[lhs] < modified[rhs];
-                            },
-                            .size => {
-                                const size = passed_entries.data_slices.get(kind).items(.size);
-                                return size[lhs] < size[rhs];
-                            },
-                        }
-                    }
-                }.cmp;
-
-                std.sort.block(u16, sort_list.items, entries, lessThanFn);
-            }
-        }
-
-        entries.curr_sorting = sorting;
-    }
-
-    pub fn try_jump(entries: *Entries, char: u8) enum { jumped, not_found } {
-        for (kinds()) |kind| {
-            var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
-            while (sorted_entries.next()) |entry| {
-                if (entry.name[0] == char) {
-                    for (entries.data_slices.values) |slice| {
-                        for (slice.items(.selected)) |*unselect| unselect.* = null;
-                    }
-                    entries.data_slices.get(kind).items(.selected)[entry.index] = time.milliTimestamp();
-                    return .jumped;
-                }
-            }
-        }
-        return .not_found;
-    }
-
-    pub fn toggle_sort_type(entries: *Entries) void {
-        entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
-    }
-};
 
 pub fn format(model: *const Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
     try fmt.format(writer, "cwd: {s}\n", .{model.cwd.items});

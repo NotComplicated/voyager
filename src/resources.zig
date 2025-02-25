@@ -1,11 +1,10 @@
 const std = @import("std");
-const fs = std.fs;
 const enums = std.enums;
+const fs = std.fs;
 const meta = std.meta;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
-
 const rl = @import("raylib");
 
 const resources_path = "resources" ++ fs.path.sep_str;
@@ -51,7 +50,7 @@ pub const file_icon_size = 36;
 
 var file_icons: [6][6]rl.Texture = undefined;
 
-pub fn get_file_icon(file_name: []const u8) *rl.Texture {
+pub fn getFileIcon(file_name: []const u8) *rl.Texture {
     const ExtensionMap = std.StaticStringMapWithEql(struct { u3, u3 }, std.static_string_map.eqlAsciiIgnoreCase);
     const extensions = ExtensionMap.initComptime(.{
         .{ "txt", .{ 0, 0 } },
@@ -106,7 +105,7 @@ pub fn get_file_icon(file_name: []const u8) *rl.Texture {
     return &file_icons[i][j];
 }
 
-pub fn init_resources() !void {
+pub fn init() !void {
     inline for (comptime meta.fieldNames(@TypeOf(image_filenames))) |filename| {
         const path = resources_path ++ @field(image_filenames, filename);
         const image = try rl.loadImageFromMemory(@ptrCast(fs.path.extension(path)), @embedFile(path));
@@ -145,7 +144,7 @@ pub fn init_resources() !void {
     }
 }
 
-pub fn deinit_resources() void {
+pub fn deinit() void {
     inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
     for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
     inline for (0..comptime meta.fields(@TypeOf(font_filenames)).len) |i|
