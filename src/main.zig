@@ -4,9 +4,7 @@ pub const windows = builtin.os.tag == .windows;
 
 const std = @import("std");
 const enums = std.enums;
-const ascii = std.ascii;
 const heap = std.heap;
-const log = std.log;
 const os = std.os;
 
 const clay = @import("clay");
@@ -16,8 +14,6 @@ const rl = @import("raylib");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const Font = resources.Font;
-const hover = @import("hover.zig");
-const EventParam = hover.EventParam;
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
@@ -31,8 +27,10 @@ const height = 600;
 const mem_scale = 5;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
-var logging_page_alloc = heap.LoggingAllocator(.debug, .info).init(heap.page_allocator);
-pub const alloc = logging_page_alloc.allocator();
+pub const alloc = if (debug) alloc: {
+    var logging_page_alloc = heap.loggingAllocator(heap.page_allocator);
+    break :alloc logging_page_alloc.allocator();
+} else heap.page_allocator;
 
 // a buffer for the raylib renderer to use for temporary string copies
 var buf: [4096]u8 = undefined;
@@ -130,7 +128,6 @@ pub fn main() !void {
     clay.setDebugModeEnabled(debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
-    defer hover.deinit();
 
     if (windows) {
         _ = struct {
@@ -154,15 +151,15 @@ pub fn main() !void {
     var model = try Model.init();
     defer model.deinit();
 
-    while (!rl.windowShouldClose()) frame(&model) catch |err| alert.update(err);
+    while (!rl.windowShouldClose()) frame(&model);
 }
 
-fn frame(model: *Model) !void {
+fn frame(model: *Model) void {
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
     clay.setPointerState(convertVector(rl.getMousePosition()), rl.isMouseButtonDown(.left));
     clay.updateScrollContainers(true, convertVector(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 5)), rl.getFrameTime());
 
-    if (model.handleInput(Input.read())) |message| try model.handleMessage(message);
+    model.update(Input.read()) catch |err| alert.update(err);
 
     rl.beginDrawing();
     defer rl.endDrawing();
@@ -172,15 +169,6 @@ fn frame(model: *Model) !void {
     cursor = rl.MouseCursor.default;
     defer rl.setMouseCursor(cursor);
 
-    clay.ui()(.{
-        .id = clay.id("Screen"),
-        .layout = .{
-            .sizing = clay.Element.Sizing.grow(.{}),
-            .layout_direction = .top_to_bottom,
-        },
-        .rectangle = .{ .color = theme.base },
-    })({
-        model.render();
-        alert.render();
-    });
+    model.render();
+    alert.render();
 }

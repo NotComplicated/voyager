@@ -1,5 +1,6 @@
 const std = @import("std");
 const process = std.process;
+const enums = std.enums;
 const time = std.time;
 const meta = std.meta;
 const fmt = std.fmt;
@@ -13,7 +14,7 @@ const rl = @import("raylib");
 const main = @import("main.zig");
 const Bytes = main.Bytes;
 const Millis = main.Millis;
-const Message = @import("message.zig").Message;
+const resources = @import("resources.zig");
 const Input = @import("Input.zig");
 const Entries = @import("Entries.zig");
 
@@ -22,9 +23,6 @@ entries: Entries,
 
 const Model = @This();
 
-const double_click: Millis = 300;
-const max_paste_len: usize = 1024;
-
 pub const Error = error{
     OsNotSupported,
     OutOfBounds,
@@ -32,19 +30,37 @@ pub const Error = error{
     DirAccessDenied,
 } || mem.Allocator.Error || process.Child.SpawnError;
 
+const double_click_delay: Millis = 300;
+const max_paste_len = 1024;
+const nav_size = 30;
+const nav_buttons = .{
+    .parent = clay.id("Parent"),
+    .refresh = clay.id("Refresh"),
+    .vscode = clay.id("VsCode"),
+};
+
+fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
+    clay.ui()(.{
+        .id = id,
+        .layout = .{ .sizing = clay.Element.Sizing.fixed(nav_size) },
+        .image = .{
+            .image_data = icon,
+            .source_dimensions = clay.Dimensions.square(nav_size),
+        },
+        .rectangle = .{
+            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.base,
+            .corner_radius = main.rounded,
+        },
+    })({
+        main.pointer();
+    });
+}
+
 pub fn init() !Model {
     var model = Model{
         .cwd = try Bytes.initCapacity(main.alloc, 1024),
         .cursor = null,
-        .entries = .{
-            .data = meta.FieldType(Entries, .data).initFill(.{}),
-            .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-            .names = try Bytes.initCapacity(main.alloc, 1024),
-            .sortings = meta.FieldType(Entries, .sortings)
-                .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
-            .curr_sorting = .name,
-            .sort_type = .asc,
-        },
+        .entries = Entries.init(),
     };
     errdefer model.deinit();
 
@@ -62,201 +78,223 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
-pub fn handleInput(model: Model, input: Input) ?Message {
-    if (main.debug and input.action == .{ .mouse = .{ .state = .pressed, .button = .middle } }) {
-        log.debug("{any}\n", .{&model});
+pub fn update(model: *Model, input: Input) !void {
+    if (main.debug and input.clicked(.middle)) {
+        log.debug("{}\n", .{model});
+    } else if (input.clicked(.side)) {
+        try model.open_parent_dir();
+    } else if (input.clicked(.left)) {
+        inline for (enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
+            if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
+                switch (button) {
+                    .parent => try model.open_parent_dir(),
+                    .refresh => try model.entries.load_entries(model.cwd.items),
+                    .vscode => try model.open_vscode(),
+                }
+            }
+        }
     }
-    if (input.action == .{ .mouse = .{ .state = .pressed, .button = .side } }) {
-        return .{.parent};
+    if (try model.entries.update(input)) |message| {
+        switch (message) {
+            .select => |select_params| try model.select(
+                select_params.kind,
+                select_params.index,
+                select_params.clicked,
+                select_params.select_type,
+            ),
+        }
     }
-}
-
-pub fn handleMessage(model: *Model, message: Message) Error!void {
-    _ = model;
-    _ = message;
 }
 
 pub fn render(model: Model) void {
     clay.ui()(.{
-        .id = clay.id("NavBar"),
-        .layout = .{
-            .padding = clay.Padding.all(10),
-            .sizing = .{
-                .width = .{ .type = .grow },
-            },
-            .child_gap = 10,
-        },
-    })({
-        const nav_size = 30;
-
-        const navButton = struct {
-            fn f(name: []const u8, param: EventParam, icon: *rl.Texture) void {
-                const id = clay.id(name);
-                clay.ui()(.{
-                    .id = id,
-                    .layout = .{ .sizing = clay.Element.Sizing.fixed(nav_size) },
-                    .image = .{
-                        .image_data = icon,
-                        .source_dimensions = clay.Dimensions.square(nav_size),
-                    },
-                    .rectangle = .{
-                        .color = if (clay.pointerOver(id)) theme.hovered else theme.base,
-                        .corner_radius = rounded,
-                    },
-                })({
-                    pointer();
-                    hover.on(param);
-                });
-            }
-        }.f;
-
-        navButton("Parent", .parent, &resources.images.arrow_up);
-        navButton("Refresh", .refresh, &resources.images.refresh);
-
-        clay.ui()(.{
-            .id = clay.id("CurrentDir"),
-            .layout = .{
-                .padding = clay.Padding.all(6),
-                .sizing = .{
-                    .width = .{ .type = .grow },
-                    .height = clay.Element.Sizing.Axis.fixed(nav_size),
-                },
-                .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
-            },
-            .rectangle = .{
-                .color = if (model.cursor) |_| theme.selected else theme.nav,
-                .corner_radius = rounded,
-            },
-        })({
-            pointer();
-            if (model.cursor) |cursor_index| {
-                textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], theme.text);
-                clay.ui()(.{
-                    .floating = .{
-                        .offset = .{ .x = @floatFromInt(cursor_index * 9), .y = -2 },
-                        .attachment = .{ .element = .left_center, .parent = .left_center },
-                    },
-                })({
-                    textEx(.roboto_mono, .md, "|", theme.bright_text);
-                });
-                textEx(.roboto_mono, .sm, model.cwd.items[cursor_index..], theme.text);
-            } else {
-                textEx(.roboto_mono, .sm, model.cwd.items, theme.text);
-            }
-        });
-
-        navButton("VsCode", .vscode, &resources.images.vscode);
-    });
-
-    clay.ui()(.{
-        .id = clay.id("Content"),
+        .id = clay.id("Screen"),
         .layout = .{
             .sizing = clay.Element.Sizing.grow(.{}),
+            .layout_direction = .top_to_bottom,
         },
-        .rectangle = .{ .color = theme.mantle },
+        .rectangle = .{ .color = main.theme.base },
     })({
-        const shortcut_width = 260; // TODO customizable
-
         clay.ui()(.{
-            .id = clay.id("ShortcutsContainer"),
+            .id = clay.id("NavBar"),
             .layout = .{
                 .padding = clay.Padding.all(10),
-                .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
+                .sizing = .{
+                    .width = .{ .type = .grow },
+                },
+                .child_gap = 10,
             },
         })({
+            renderNavButton(nav_buttons.parent.id, &resources.images.arrow_up);
+            renderNavButton(nav_buttons.refresh.id, &resources.images.refresh);
+
             clay.ui()(.{
-                .id = clay.id("Shortcuts"),
+                .id = clay.id("CurrentDir"),
                 .layout = .{
-                    .layout_direction = .top_to_bottom,
-                    .padding = clay.Padding.all(16),
+                    .padding = clay.Padding.all(6),
+                    .sizing = .{
+                        .width = .{ .type = .grow },
+                        .height = clay.Element.Sizing.Axis.fixed(nav_size),
+                    },
+                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                },
+                .rectangle = .{
+                    .color = if (model.cursor) |_| main.theme.selected else main.theme.nav,
+                    .corner_radius = main.rounded,
                 },
             })({
-                text(.sm, "Shortcuts will go here");
-            });
-        });
-
-        clay.ui()(.{
-            .id = clay.id("EntriesContainer"),
-            .layout = .{
-                .padding = clay.Padding.all(10),
-                .sizing = clay.Element.Sizing.grow(.{}),
-            },
-        })({
-            clay.ui()(.{
-                .id = clay.id("Entries"),
-                .layout = .{
-                    .layout_direction = .top_to_bottom,
-                    .padding = clay.Padding.all(10),
-                    .sizing = clay.Element.Sizing.grow(.{}),
-                    .child_gap = 4,
-                },
-                .scroll = .{ .vertical = true },
-                .rectangle = .{ .color = theme.base, .corner_radius = rounded },
-            })({
-                inline for (comptime Model.Entries.kinds()) |kind| {
-                    var kind_name = @tagName(kind).*;
-                    kind_name[0] = ascii.toUpper(kind_name[0]);
-
-                    var sorted = model.entries.sorted(kind, &.{ .name, .selected });
-                    var sorted_index: Model.Index = 0;
-                    while (sorted.next()) |entry| : (sorted_index += 1) {
-                        const id = clay.idi(kind_name ++ "Entry", entry.index);
-                        clay.ui()(.{
-                            .id = id,
-                            .layout = .{
-                                .padding = .{ .top = 4, .bottom = 4, .left = 8 },
-                                .sizing = .{ .width = .{ .type = .grow } },
-                                .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
-                                .child_gap = 4,
-                            },
-                            .rectangle = .{
-                                .color = if (entry.selected) |_|
-                                    theme.selected
-                                else if (clay.pointerOver(id))
-                                    theme.hovered
-                                else
-                                    theme.base,
-                                .corner_radius = rounded,
-                            },
-                        })({
-                            pointer();
-                            hover.on(.{ .entry = .{ kind, entry.index } });
-
-                            const icon_image = if (kind == .dir)
-                                if (clay.hovered()) &resources.images.folder_open else &resources.images.folder
-                            else
-                                resources.get_file_icon(entry.name);
-
-                            clay.ui()(.{
-                                .id = clay.idi(kind_name ++ "EntryIconContainer", entry.index),
-                                .layout = .{
-                                    .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
-                                },
-                            })({
-                                clay.ui()(.{
-                                    .id = clay.idi(kind_name ++ "EntryIcon", entry.index),
-                                    .layout = .{
-                                        .sizing = clay.Element.Sizing.grow(.{}),
-                                    },
-                                    .image = .{
-                                        .image_data = icon_image,
-                                        .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
-                                    },
-                                })({});
-                            });
-
-                            clay.ui()(.{
-                                .id = clay.idi(kind_name ++ "EntryName", entry.index),
-                                .layout = .{ .padding = clay.Padding.all(6) },
-                            })({
-                                text(.sm, entry.name);
-                            });
-                        });
-                    }
+                main.pointer();
+                if (model.cursor) |cursor_index| {
+                    main.textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], main.theme.text);
+                    clay.ui()(.{
+                        .floating = .{
+                            .offset = .{ .x = @floatFromInt(cursor_index * 9), .y = -2 },
+                            .attachment = .{ .element = .left_center, .parent = .left_center },
+                        },
+                    })({
+                        main.textEx(.roboto_mono, .md, "|", main.theme.bright_text);
+                    });
+                    main.textEx(.roboto_mono, .sm, model.cwd.items[cursor_index..], main.theme.text);
+                } else {
+                    main.textEx(.roboto_mono, .sm, model.cwd.items, main.theme.text);
                 }
             });
+
+            renderNavButton(nav_buttons.vscode, &resources.images.vscode);
+        });
+
+        clay.ui()(.{
+            .id = clay.id("Content"),
+            .layout = .{
+                .sizing = clay.Element.Sizing.grow(.{}),
+            },
+            .rectangle = .{ .color = main.theme.mantle },
+        })({
+            const shortcut_width = 260; // TODO customizable
+
+            clay.ui()(.{
+                .id = clay.id("ShortcutsContainer"),
+                .layout = .{
+                    .padding = clay.Padding.all(10),
+                    .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
+                },
+            })({
+                clay.ui()(.{
+                    .id = clay.id("Shortcuts"),
+                    .layout = .{
+                        .layout_direction = .top_to_bottom,
+                        .padding = clay.Padding.all(16),
+                    },
+                })({
+                    main.text("Shortcuts will go here");
+                });
+            });
+
+            model.entries.render();
         });
     });
+}
+
+pub fn select(
+    model: *Model,
+    kind: Entries.Kind,
+    index: Entries.Index,
+    clicked: bool,
+    select_type: enum { single, multi, bulk },
+) Error!void {
+    const selected = model.entries.data_slices.get(kind).items(.selected);
+    if (selected.len <= index) return Model.Error.OutOfBounds;
+
+    const now = time.milliTimestamp();
+    if (selected[index]) |selected_ts| {
+        if (clicked and (now - selected_ts) < double_click_delay) {
+            switch (kind) {
+                .dir => try model.open_dir(index),
+                .file => try model.open_file(index),
+            }
+        }
+    }
+
+    switch (select_type) {
+        .single => {
+            for (model.entries.data_slices.values) |slice| {
+                for (slice.items(.selected)) |*unselect| unselect.* = null;
+            }
+            selected[index] = now;
+        },
+        .multi => selected[index] = now,
+        .bulk => {
+            // TODO
+        },
+    }
+}
+
+pub fn open_dir(model: *Model, index: Entries.Index) Error!void {
+    const name_start, const name_end = model.entries.data_slices.get(.dir).items(.name)[index];
+    const name = model.entries.names.items[name_start..name_end];
+    try model.cwd.append(main.alloc, fs.path.sep);
+    try model.cwd.appendSlice(main.alloc, name);
+
+    model.entries.load_entries(model.cwd.items) catch |err| switch (err) {
+        Error.DirAccessDenied, Error.OpenDirFailure => {
+            model.cwd.shrinkRetainingCapacity(model.cwd.items.len - name.len - 1);
+            try model.entries.load_entries(model.cwd.items);
+            return err;
+        },
+        else => return err,
+    };
+}
+
+pub fn open_parent_dir(model: *Model) Error!void {
+    const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
+    model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
+    try model.entries.load_entries(model.cwd.items);
+}
+
+pub fn open_file(model: Model, index: Entries.Index) Error!void {
+    const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
+    const name = model.entries.names.items[name_start..name_end];
+    const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
+    defer main.alloc.free(path);
+    const invoker = if (main.windows)
+        .{ "cmd", "/c", "start" }
+    else
+        return Error.OsNotSupported;
+    const argv = invoker ++ .{path};
+
+    var child = process.Child.init(&argv, main.alloc);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    child.cwd = model.cwd.items;
+    _ = try child.spawnAndWait();
+}
+
+pub fn open_vscode(model: Model) Error!void {
+    const invoker = if (main.windows)
+        .{ "cmd", "/c", "code" }
+    else
+        return Error.OsNotSupported;
+    const argv = invoker ++ .{model.cwd.items};
+
+    var child = process.Child.init(&argv, main.alloc);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    child.cwd = model.cwd.items;
+    _ = try child.spawnAndWait();
+}
+
+pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+    try fmt.format(writer, "cwd: {s}\n", .{model.cwd.items});
+    for (Entries.kinds()) |kind| {
+        try fmt.format(writer, "{s}s:\n", .{@tagName(kind)});
+        for (0..model.entries.data.get(kind).len) |i| {
+            const name_start, const name_end = model.entries.data_slices.get(kind).items(.name)[i];
+            const name = model.entries.names.items[name_start..name_end];
+            try fmt.format(writer, "\t{d}) {s}\n", .{ i + 1, name });
+        }
+    }
 }
 
 // TODO
@@ -502,93 +540,3 @@ pub fn render(model: Model) void {
 //         }
 //     }
 // }
-
-pub fn select(model: *Model, kind: Entries.Kind, index: Index, action: enum { touch, try_open }) Error!void {
-    const selected = model.entries.data_slices.get(kind).items(.selected);
-    if (selected.len <= index) return Error.OutOfBounds;
-
-    const now = time.milliTimestamp();
-    if (selected[index]) |selected_ts| {
-        if (action == .try_open and (now - selected_ts) < double_click) {
-            return if (kind == .dir) model.open_dir(index) else model.open_file(index);
-        }
-    }
-
-    if (rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift)) {
-        // TODO bulk selection
-    }
-    if (!(rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control))) {
-        for (model.entries.data_slices.values) |slice| {
-            for (slice.items(.selected)) |*unselect| unselect.* = null;
-        }
-    }
-    selected[index] = now;
-}
-
-pub fn open_dir(model: *Model, index: Index) Error!void {
-    const name_start, const name_end = model.entries.data_slices.get(.dir).items(.name)[index];
-    const name = model.entries.names.items[name_start..name_end];
-    try model.cwd.append(main.alloc, fs.path.sep);
-    try model.cwd.appendSlice(main.alloc, name);
-
-    model.entries.load_entries(model.cwd.items) catch |err| switch (err) {
-        Error.DirAccessDenied, Error.OpenDirFailure => {
-            model.cwd.shrinkRetainingCapacity(model.cwd.items.len - name.len - 1);
-            try model.entries.load_entries(model.cwd.items);
-            return err;
-        },
-        else => return err,
-    };
-}
-
-pub fn open_parent_dir(model: *Model) Error!void {
-    const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
-    model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
-    try model.entries.load_entries(model.cwd.items);
-}
-
-pub fn open_file(model: *const Model, index: Index) Error!void {
-    const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
-    const name = model.entries.names.items[name_start..name_end];
-    const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
-    defer main.alloc.free(path);
-    const invoker = if (main.windows)
-        .{ "cmd", "/c", "start" }
-    else
-        return Error.OsNotSupported;
-    const argv = invoker ++ .{path};
-
-    var child = process.Child.init(&argv, main.alloc);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    child.cwd = model.cwd.items;
-    _ = try child.spawnAndWait();
-}
-
-pub fn open_vscode(model: *const Model) Error!void {
-    const invoker = if (main.windows)
-        .{ "cmd", "/c", "code" }
-    else
-        return Error.OsNotSupported;
-    const argv = invoker ++ .{model.cwd.items};
-
-    var child = process.Child.init(&argv, main.alloc);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    child.cwd = model.cwd.items;
-    _ = try child.spawnAndWait();
-}
-
-pub fn format(model: *const Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
-    try fmt.format(writer, "cwd: {s}\n", .{model.cwd.items});
-    for (Entries.kinds()) |kind| {
-        try fmt.format(writer, "{s}s:\n", .{@tagName(kind)});
-        for (0..model.entries.data.get(kind).len) |i| {
-            const name_start, const name_end = model.entries.data_slices.get(kind).items(.name)[i];
-            const name = model.entries.names.items[name_start..name_end];
-            try fmt.format(writer, "\t{d}) {s}\n", .{ i + 1, name });
-        }
-    }
-}

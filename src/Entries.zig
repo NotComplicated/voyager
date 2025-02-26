@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = std.builtin;
+const ascii = std.ascii;
 const enums = std.enums;
 const meta = std.meta;
 const math = std.math;
@@ -7,10 +8,12 @@ const time = std.time;
 const mem = std.mem;
 const fs = std.fs;
 
+const clay = @import("clay");
+
 const main = @import("main.zig");
 const Bytes = main.Bytes;
 const Millis = main.Millis;
-const Message = @import("message.zig").Message;
+const resources = @import("resources.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -30,10 +33,6 @@ pub const Kind = enum {
     file,
 };
 
-pub fn kinds() []const Kind {
-    return enums.values(Kind);
-}
-
 const Sorting = enum {
     name,
     ext,
@@ -49,20 +48,15 @@ const Entry = struct {
     modified: Millis,
     size: u64,
     readonly: bool,
+};
 
-    pub fn handleInput(entry: Entry, input: Input) ?Message {
-        _ = entry;
-        _ = input;
-    }
-
-    pub fn handleMessage(entry: *Entry, message: Message) Model.Error!void {
-        _ = entry;
-        _ = message;
-    }
-
-    pub fn render(entry: Entry) void {
-        _ = entry;
-    }
+const Message = union(enum) {
+    select: struct {
+        kind: Model.Entries.Kind,
+        index: Model.Index,
+        clicked: bool,
+        select_type: enum { single, multi, bulk },
+    },
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
@@ -112,29 +106,146 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     };
 }
 
-fn deinit(entries: *Entries) void {
+const entries_id = clay.id("Entries");
+
+fn kinds() []const Kind {
+    return enums.values(Kind);
+}
+
+fn getEntryId(kind: Kind, suffix: []const u8, index: Index) clay.Element.Config.Id {
+    var kind_name = @tagName(kind).*;
+    kind_name[0] = ascii.toUpper(kind_name[0]);
+    return clay.idi(kind_name ++ "Entry" ++ suffix, index);
+}
+
+fn nanosToMillis(nanos: i128) Millis {
+    return @intCast(@divFloor(nanos, time.ns_per_ms));
+}
+
+pub fn init() !Entries {
+    return .{
+        .data = meta.FieldType(Entries, .data).initFill(.{}),
+        .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
+        .names = try Bytes.initCapacity(main.alloc, 1024),
+        .sortings = meta.FieldType(Entries, .sortings)
+            .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
+        .curr_sorting = .name,
+        .sort_type = .asc,
+    };
+}
+
+pub fn deinit(entries: *Entries) void {
     for (&entries.data.values) |*data| data.deinit(main.alloc);
     entries.names.deinit(main.alloc);
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
 }
 
-pub fn handleInput(entries: Entries, input: Input) ?Message {
-    _ = entries;
-    _ = input;
-}
-
-pub fn handleMessage(entries: *Entries, message: Message) Model.Error!void {
-    _ = entries;
-    _ = message;
+pub fn update(entries: *Entries, input: Input) ?Message {
+    if (!clay.pointerOver(entries_id)) return null;
+    if (input.clicked(.left)) {
+        for (kinds()) |kind| {
+            for (0..entries.data_slices.get(kind).len) |index| {
+                if (clay.pointerOver(getEntryId(kind, "", index))) {
+                    return .{ .select = .{ .kind = kind, .index = index, .clicked = true } };
+                }
+            }
+        }
+    } else if (input.action) |action| {
+        switch (action) {
+            .mouse => {},
+            .key => |key| switch (key) {
+                .char => |char| entries.jump(char),
+            },
+        }
+    }
+    return null;
 }
 
 pub fn render(entries: Entries) void {
-    _ = entries;
+    clay.ui()(.{
+        .id = clay.id("EntriesContainer"),
+        .layout = .{
+            .padding = clay.Padding.all(10),
+            .sizing = clay.Element.Sizing.grow(.{}),
+        },
+    })({
+        clay.ui()(.{
+            .id = entries_id,
+            .layout = .{
+                .layout_direction = .top_to_bottom,
+                .padding = clay.Padding.all(10),
+                .sizing = clay.Element.Sizing.grow(.{}),
+                .child_gap = 4,
+            },
+            .scroll = .{ .vertical = true },
+            .rectangle = .{ .color = main.theme.base, .corner_radius = main.rounded },
+        })({
+            inline for (comptime kinds()) |kind| {
+                var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
+                var sorted_index = 0;
+                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                    const entry_id = getEntryId(kind, "", sorted_index);
+                    clay.ui()(.{
+                        .id = entry_id,
+                        .layout = .{
+                            .padding = .{ .top = 4, .bottom = 4, .left = 8 },
+                            .sizing = .{ .width = .{ .type = .grow } },
+                            .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                            .child_gap = 4,
+                        },
+                        .rectangle = .{
+                            .color = if (entry.selected) |_|
+                                main.theme.selected
+                            else if (clay.pointerOver(entry_id))
+                                main.theme.hovered
+                            else
+                                main.theme.base,
+                            .corner_radius = main.rounded,
+                        },
+                    })({
+                        main.pointer();
+
+                        const icon_image = switch (kind) {
+                            .dir => if (clay.hovered()) &resources.images.folder_open else &resources.images.folder,
+                            .file => resources.get_file_icon(entry.name),
+                        };
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "IconContainer", sorted_index),
+                            .layout = .{
+                                .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
+                            },
+                        })({
+                            clay.ui()(.{
+                                .id = getEntryId(kind, "Icon", sorted_index),
+                                .layout = .{
+                                    .sizing = clay.Element.Sizing.grow(.{}),
+                                },
+                                .image = .{
+                                    .image_data = icon_image,
+                                    .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
+                                },
+                            })({});
+                        });
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "Name", sorted_index),
+                            .layout = .{
+                                .padding = clay.Padding.all(6),
+                            },
+                        })({
+                            main.text(entry.name);
+                        });
+                    });
+                }
+            }
+        });
+    });
 }
 
-pub fn load_entries(entries: *Entries, cwd: []const u8) Model.Error!void {
-    if (!fs.path.isAbsolute(cwd)) return Model.Error.OpenDirFailure;
-    const dir = fs.openDirAbsolute(cwd, .{ .iterate = true }) catch |err|
+pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
+    if (!fs.path.isAbsolute(path)) return Model.Error.OpenDirFailure;
+    const dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
         return if (err == error.AccessDenied) Model.Error.DirAccessDenied else Model.Error.OpenDirFailure;
 
     for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
@@ -159,8 +270,8 @@ pub fn load_entries(entries: *Entries, cwd: []const u8) Model.Error!void {
             .{
                 .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
                 .selected = null,
-                .created = if (metadata.created()) |created| nanos_to_millis(created) else null,
-                .modified = nanos_to_millis(metadata.modified()),
+                .created = if (metadata.created()) |created| nanosToMillis(created) else null,
+                .modified = nanosToMillis(metadata.modified()),
                 .size = metadata.size(),
                 .readonly = metadata.permissions().readOnly(),
             },
@@ -171,10 +282,6 @@ pub fn load_entries(entries: *Entries, cwd: []const u8) Model.Error!void {
     for (entries.data.values, &entries.data_slices.values) |data, *data_slice| data_slice.* = data.slice();
     try entries.sort(.name);
     entries.sort_type = .asc;
-}
-
-fn nanos_to_millis(nanos: i128) Millis {
-    return @intCast(@divFloor(nanos, time.ns_per_ms));
 }
 
 pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
@@ -235,20 +342,19 @@ pub fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
     entries.curr_sorting = sorting;
 }
 
-pub fn try_jump(entries: *Entries, char: u8) enum { jumped, not_found } {
+pub fn jump(entries: *Entries, char: u8) void {
     for (kinds()) |kind| {
         var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
         while (sorted_entries.next()) |entry| {
-            if (entry.name[0] == char) {
+            if (ascii.startsWithIgnoreCase(entry.name, .{char})) {
                 for (entries.data_slices.values) |slice| {
                     for (slice.items(.selected)) |*unselect| unselect.* = null;
                 }
                 entries.data_slices.get(kind).items(.selected)[entry.index] = time.milliTimestamp();
-                return .jumped;
+                return;
             }
         }
     }
-    return .not_found;
 }
 
 pub fn toggle_sort_type(entries: *Entries) void {
