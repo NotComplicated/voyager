@@ -23,8 +23,6 @@ entries: Entries,
 
 const Model = @This();
 
-pub const SelectType = enum { single, multi, bulk };
-
 pub const Error = error{
     OsNotSupported,
     OutOfBounds,
@@ -32,7 +30,6 @@ pub const Error = error{
     DirAccessDenied,
 } || mem.Allocator.Error || process.Child.SpawnError;
 
-const double_click_delay: Millis = 300;
 const max_paste_len = 1024;
 const nav_size = 30;
 const nav_buttons = .{
@@ -97,12 +94,8 @@ pub fn update(model: *Model, input: Input) !void {
     }
     if (model.entries.update(input)) |message| {
         switch (message) {
-            .select => |select_params| try model.select(
-                select_params.kind,
-                select_params.index,
-                select_params.clicked,
-                select_params.select_type,
-            ),
+            .open_dir => |name| try model.open_dir(name),
+            .open_file => |name| try model.open_file(name),
         }
     }
 }
@@ -126,8 +119,8 @@ pub fn render(model: Model) void {
                 .child_gap = 10,
             },
         })({
-            renderNavButton(nav_buttons.parent.id, &resources.images.arrow_up);
-            renderNavButton(nav_buttons.refresh.id, &resources.images.refresh);
+            renderNavButton(nav_buttons.parent, &resources.images.arrow_up);
+            renderNavButton(nav_buttons.refresh, &resources.images.refresh);
 
             clay.ui()(.{
                 .id = main.newId("CurrentDir"),
@@ -139,13 +132,13 @@ pub fn render(model: Model) void {
                     },
                     .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
                 },
-                .rectangle = .{
-                    .color = if (model.cursor) |_| main.theme.selected else main.theme.nav,
+                .rectangle = .{ //TODO color based on if editing
+                    .color = if (model.cwd.items.len > 0) main.theme.selected else main.theme.nav,
                     .corner_radius = main.rounded,
                 },
             })({
                 main.pointer();
-                if (model.cursor) |cursor_index| {
+                if (@as(?usize, 0)) |cursor_index| { //TODO get pos from text box
                     main.textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], main.theme.text);
                     clay.ui()(.{
                         .floating = .{
@@ -196,43 +189,7 @@ pub fn render(model: Model) void {
     });
 }
 
-fn select(
-    model: *Model,
-    kind: Entries.Kind,
-    index: Entries.Index,
-    clicked: bool,
-    select_type: SelectType,
-) Error!void {
-    const selected = model.entries.data_slices.get(kind).items(.selected);
-    if (selected.len <= index) return Model.Error.OutOfBounds;
-
-    const now = time.milliTimestamp();
-    if (selected[index]) |selected_ts| {
-        if (clicked and (now - selected_ts) < double_click_delay) {
-            switch (kind) {
-                .dir => try model.open_dir(index),
-                .file => try model.open_file(index),
-            }
-        }
-    }
-
-    switch (select_type) {
-        .single => {
-            for (model.entries.data_slices.values) |slice| {
-                for (slice.items(.selected)) |*unselect| unselect.* = null;
-            }
-            selected[index] = now;
-        },
-        .multi => selected[index] = now,
-        .bulk => {
-            // TODO
-        },
-    }
-}
-
-fn open_dir(model: *Model, index: Entries.Index) Error!void {
-    const name_start, const name_end = model.entries.data_slices.get(.dir).items(.name)[index];
-    const name = model.entries.names.items[name_start..name_end];
+fn open_dir(model: *Model, name: []const u8) Error!void {
     try model.cwd.append(main.alloc, fs.path.sep);
     try model.cwd.appendSlice(main.alloc, name);
 
@@ -252,9 +209,7 @@ fn open_parent_dir(model: *Model) Error!void {
     try model.entries.load_entries(model.cwd.items);
 }
 
-fn open_file(model: Model, index: Entries.Index) Error!void {
-    const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
-    const name = model.entries.names.items[name_start..name_end];
+fn open_file(model: Model, name: []const u8) Error!void {
     const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
     defer main.alloc.free(path);
     const invoker = if (main.windows)

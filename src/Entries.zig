@@ -14,6 +14,7 @@ const main = @import("main.zig");
 const Bytes = main.Bytes;
 const Millis = main.Millis;
 const resources = @import("resources.zig");
+const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -51,12 +52,8 @@ const Entry = struct {
 };
 
 const Message = union(enum) {
-    select: struct {
-        kind: Kind,
-        index: Index,
-        clicked: bool,
-        select_type: Model.SelectType,
-    },
+    open_dir: []const u8,
+    open_file: []const u8,
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
@@ -107,12 +104,13 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
 }
 
 const entries_id = main.newId("Entries");
+const double_click_delay: Millis = 300;
 
 fn kinds() []const Kind {
     return enums.values(Kind);
 }
 
-fn getEntryId(kind: Kind, suffix: []const u8, index: Index) clay.Element.Config.Id {
+fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) clay.Element.Config.Id {
     var kind_name = @tagName(kind).*;
     kind_name[0] = ascii.toUpper(kind_name[0]);
     return main.newIdIndexed(kind_name ++ "Entry" ++ suffix, index);
@@ -143,10 +141,11 @@ pub fn deinit(entries: *Entries) void {
 pub fn update(entries: *Entries, input: Input) ?Message {
     if (!clay.pointerOver(entries_id)) return null;
     if (input.clicked(.left)) {
-        for (kinds()) |kind| {
-            for (0..entries.data_slices.get(kind).len) |index| {
+        inline for (comptime kinds()) |kind| {
+            for (0..entries.data_slices.get(kind).len) |i| {
+                const index: Index = @intCast(i);
                 if (clay.pointerOver(getEntryId(kind, "", index))) {
-                    return .{ .select = .{ .kind = kind, .index = index, .clicked = true } };
+                    return entries.select(kind, index, true, .single); // TODO select type
                 }
             }
         }
@@ -155,6 +154,7 @@ pub fn update(entries: *Entries, input: Input) ?Message {
             .mouse => {},
             .key => |key| switch (key) {
                 .char => |char| entries.jump(char),
+                else => {},
             },
         }
     }
@@ -182,7 +182,7 @@ pub fn render(entries: Entries) void {
         })({
             inline for (comptime kinds()) |kind| {
                 var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
-                var sorted_index = 0;
+                var sorted_index: Index = 0;
                 while (sorted_iter.next()) |entry| : (sorted_index += 1) {
                     const entry_id = getEntryId(kind, "", sorted_index);
                     clay.ui()(.{
@@ -207,7 +207,7 @@ pub fn render(entries: Entries) void {
 
                         const icon_image = switch (kind) {
                             .dir => if (clay.hovered()) &resources.images.folder_open else &resources.images.folder,
-                            .file => resources.get_file_icon(entry.name),
+                            .file => resources.getFileIcon(entry.name),
                         };
 
                         clay.ui()(.{
@@ -276,7 +276,10 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
                 .readonly = metadata.permissions().readOnly(),
             },
         ) catch break;
-        if (data.len == math.maxInt(Index)) break;
+        if (data.len == math.maxInt(Index)) {
+            alert.updateFmt("Reached the maximum entry limit", .{});
+            break;
+        }
     }
 
     for (entries.data.values, &entries.data_slices.values) |data, *data_slice| data_slice.* = data.slice();
@@ -342,11 +345,42 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
     entries.curr_sorting = sorting;
 }
 
+fn select(entries: *Entries, kind: Kind, index: Index, clicked: bool, select_type: enum { single, multi, bulk }) ?Message {
+    const selected = entries.data_slices.get(kind).items(.selected);
+
+    const now = time.milliTimestamp();
+    if (selected[index]) |selected_ts| {
+        if (clicked and (now - selected_ts) < double_click_delay) {
+            const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
+            const name = entries.names.items[name_start..name_end];
+            return switch (kind) {
+                .dir => .{ .open_dir = name },
+                .file => .{ .open_file = name },
+            };
+        }
+    }
+
+    switch (select_type) {
+        .single => {
+            for (entries.data_slices.values) |slice| {
+                for (slice.items(.selected)) |*unselect| unselect.* = null;
+            }
+            selected[index] = now;
+        },
+        .multi => selected[index] = now,
+        .bulk => {
+            // TODO
+        },
+    }
+
+    return null;
+}
+
 fn jump(entries: *Entries, char: u8) void {
     for (kinds()) |kind| {
         var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
         while (sorted_entries.next()) |entry| {
-            if (ascii.startsWithIgnoreCase(entry.name, .{char})) {
+            if (ascii.startsWithIgnoreCase(entry.name, &.{char})) {
                 for (entries.data_slices.values) |slice| {
                     for (slice.items(.selected)) |*unselect| unselect.* = null;
                 }

@@ -95,7 +95,10 @@ pub fn read() Input {
             return null_action_input;
         }
     }
-    maybe_prev_key = .{ .key = key, .timer = .{ .start = time.milliTimestamp() } };
+    maybe_prev_key = .{
+        .key = key,
+        .timer = @TypeOf(maybe_prev_key.?.timer){ .start = time.milliTimestamp() },
+    };
 
     const key_int = @intFromEnum(key);
     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
@@ -156,25 +159,23 @@ pub fn read() Input {
     else
         null;
 
-    const action = if (maybe_char) |char|
-        .{ .key = .{ .char = char } }
-    else switch (key) {
-        .delete => .{ .key = .{.delete} },
-        .backspace => .{ .key = .{.backspace} },
-        .home => .{ .key = .{.home} },
-        .end => .{ .key = .{.end} },
-        .escape => .{ .key = .{.escape} },
-        .tab => .{ .key = .{.tab} },
-        .up => .{ .key = .{.up} },
-        .down => .{ .key = .{.down} },
-        .left => .{ .key = .{.left} },
-        .right => .{ .key = .{.right} },
-        else => null,
-    };
-
     return .{
         .mouse_pos = mouse_pos,
-        .action = action,
+        .action = if (maybe_char) |char|
+            .{ .key = .{ .char = char } }
+        else switch (key) {
+            .delete => .{ .key = .delete },
+            .backspace => .{ .key = .backspace },
+            .home => .{ .key = .home },
+            .end => .{ .key = .end },
+            .escape => .{ .key = .escape },
+            .tab => .{ .key = .tab },
+            .up => .{ .key = .up },
+            .down => .{ .key = .down },
+            .left => .{ .key = .left },
+            .right => .{ .key = .right },
+            else => null,
+        },
         .shift = shift,
         .ctrl = ctrl,
     };

@@ -1,5 +1,4 @@
 const std = @import("std");
-const rlz = @import("raylib-zig");
 
 const name = "voyager";
 
