@@ -1,6 +1,7 @@
 const std = @import("std");
 const ascii = std.ascii;
 const enums = std.enums;
+const meta = std.meta;
 const time = std.time;
 
 const clay = @import("clay");
@@ -47,17 +48,19 @@ pub fn read() Input {
     const ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control);
 
     for (enums.values(rl.MouseButton)) |button| {
-        const state = if (rl.isMouseButtonPressed(button))
-            .pressed
-        else if (rl.isMouseButtonReleased(button))
-            .released
-        else if (rl.isMouseButtonDown(button))
-            .down
-        else
-            continue;
         return .{
             .mouse_pos = mouse_pos,
-            .action = .{ .mouse = .{ state, button } },
+            .action = .{ .mouse = .{
+                .state = if (rl.isMouseButtonPressed(button))
+                    .pressed
+                else if (rl.isMouseButtonReleased(button))
+                    .released
+                else if (rl.isMouseButtonDown(button))
+                    .down
+                else
+                    continue,
+                .button = button,
+            } },
             .shift = shift,
             .ctrl = ctrl,
         };
@@ -66,33 +69,33 @@ pub fn read() Input {
     var key = rl.getKeyPressed();
     if (key == .null) {
         const null_action_input = .{
-            .mouse_post = mouse_pos,
+            .mouse_pos = mouse_pos,
             .action = null,
             .shift = shift,
             .ctrl = ctrl,
         };
-        if (maybe_prev_key) |prev_key| {
+        if (maybe_prev_key) |*prev_key| {
             if (rl.isKeyDown(prev_key.key)) {
                 const now = time.milliTimestamp();
                 switch (prev_key.timer) {
-                    .start => |*timer| if (now - timer.* > hold_down_init_delay) {
-                        timer.* = .{ .repeat = now };
+                    .start => |timer| if (now - timer > hold_down_init_delay) {
+                        prev_key.timer = .{ .repeat = now };
                         key = prev_key.key;
                     } else return null_action_input,
-                    .repeat => |*timer| if (now - timer.* > hold_down_repeat_delay) {
-                        timer.* = .{ .repeat = now };
+                    .repeat => |timer| if (now - timer > hold_down_repeat_delay) {
+                        prev_key.timer = .{ .repeat = now };
                         key = prev_key.key;
                     } else return null_action_input,
                 }
             } else {
-                prev_key = null;
+                maybe_prev_key = null;
                 return null_action_input;
             }
         } else {
             return null_action_input;
         }
     }
-    maybe_prev_key = .{ .key = key, .timer = time.milliTimestamp() };
+    maybe_prev_key = .{ .key = key, .timer = .{ .start = time.milliTimestamp() } };
 
     const key_int = @intFromEnum(key);
     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
@@ -178,7 +181,7 @@ pub fn read() Input {
 }
 
 pub fn clicked(input: Input, button: rl.MouseButton) bool {
-    return input.action == .{ .mouse = .{ .state = .pressed, .button = button } };
+    return meta.eql(input.action, .{ .mouse = .{ .state = .pressed, .button = button } });
 }
 
 pub fn offset(input: Input, id: clay.Element.Config.Id) ?clay.Vector2 {

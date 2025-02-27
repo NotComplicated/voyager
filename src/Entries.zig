@@ -52,10 +52,10 @@ const Entry = struct {
 
 const Message = union(enum) {
     select: struct {
-        kind: Model.Entries.Kind,
-        index: Model.Index,
+        kind: Kind,
+        index: Index,
         clicked: bool,
-        select_type: enum { single, multi, bulk },
+        select_type: Model.SelectType,
     },
 };
 
@@ -106,7 +106,7 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     };
 }
 
-const entries_id = clay.id("Entries");
+const entries_id = main.newId("Entries");
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -115,7 +115,7 @@ fn kinds() []const Kind {
 fn getEntryId(kind: Kind, suffix: []const u8, index: Index) clay.Element.Config.Id {
     var kind_name = @tagName(kind).*;
     kind_name[0] = ascii.toUpper(kind_name[0]);
-    return clay.idi(kind_name ++ "Entry" ++ suffix, index);
+    return main.newIdIndexed(kind_name ++ "Entry" ++ suffix, index);
 }
 
 fn nanosToMillis(nanos: i128) Millis {
@@ -163,7 +163,7 @@ pub fn update(entries: *Entries, input: Input) ?Message {
 
 pub fn render(entries: Entries) void {
     clay.ui()(.{
-        .id = clay.id("EntriesContainer"),
+        .id = main.newId("EntriesContainer"),
         .layout = .{
             .padding = clay.Padding.all(10),
             .sizing = clay.Element.Sizing.grow(.{}),
@@ -284,7 +284,7 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
     entries.sort_type = .asc;
 }
 
-pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
+fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
     return .{
         .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
         .slice = entries.data_slices.get(kind),
@@ -292,7 +292,7 @@ pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta
     };
 }
 
-pub fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
+fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
     const sort_lists = entries.sortings.getPtr(sorting);
 
     inline for (comptime kinds()) |kind| {
@@ -342,7 +342,7 @@ pub fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
     entries.curr_sorting = sorting;
 }
 
-pub fn jump(entries: *Entries, char: u8) void {
+fn jump(entries: *Entries, char: u8) void {
     for (kinds()) |kind| {
         var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
         while (sorted_entries.next()) |entry| {
@@ -357,6 +357,6 @@ pub fn jump(entries: *Entries, char: u8) void {
     }
 }
 
-pub fn toggle_sort_type(entries: *Entries) void {
+fn toggle_sort_type(entries: *Entries) void {
     entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
 }

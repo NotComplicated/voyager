@@ -23,6 +23,8 @@ entries: Entries,
 
 const Model = @This();
 
+pub const SelectType = enum { single, multi, bulk };
+
 pub const Error = error{
     OsNotSupported,
     OutOfBounds,
@@ -34,9 +36,9 @@ const double_click_delay: Millis = 300;
 const max_paste_len = 1024;
 const nav_size = 30;
 const nav_buttons = .{
-    .parent = clay.id("Parent"),
-    .refresh = clay.id("Refresh"),
-    .vscode = clay.id("VsCode"),
+    .parent = main.newId("Parent"),
+    .refresh = main.newId("Refresh"),
+    .vscode = main.newId("VsCode"),
 };
 
 fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
@@ -59,8 +61,7 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
 pub fn init() !Model {
     var model = Model{
         .cwd = try Bytes.initCapacity(main.alloc, 1024),
-        .cursor = null,
-        .entries = Entries.init(),
+        .entries = try Entries.init(),
     };
     errdefer model.deinit();
 
@@ -84,7 +85,7 @@ pub fn update(model: *Model, input: Input) !void {
     } else if (input.clicked(.side)) {
         try model.open_parent_dir();
     } else if (input.clicked(.left)) {
-        inline for (enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
+        inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
             if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                 switch (button) {
                     .parent => try model.open_parent_dir(),
@@ -94,7 +95,7 @@ pub fn update(model: *Model, input: Input) !void {
             }
         }
     }
-    if (try model.entries.update(input)) |message| {
+    if (model.entries.update(input)) |message| {
         switch (message) {
             .select => |select_params| try model.select(
                 select_params.kind,
@@ -108,7 +109,7 @@ pub fn update(model: *Model, input: Input) !void {
 
 pub fn render(model: Model) void {
     clay.ui()(.{
-        .id = clay.id("Screen"),
+        .id = main.newId("Screen"),
         .layout = .{
             .sizing = clay.Element.Sizing.grow(.{}),
             .layout_direction = .top_to_bottom,
@@ -116,7 +117,7 @@ pub fn render(model: Model) void {
         .rectangle = .{ .color = main.theme.base },
     })({
         clay.ui()(.{
-            .id = clay.id("NavBar"),
+            .id = main.newId("NavBar"),
             .layout = .{
                 .padding = clay.Padding.all(10),
                 .sizing = .{
@@ -129,7 +130,7 @@ pub fn render(model: Model) void {
             renderNavButton(nav_buttons.refresh.id, &resources.images.refresh);
 
             clay.ui()(.{
-                .id = clay.id("CurrentDir"),
+                .id = main.newId("CurrentDir"),
                 .layout = .{
                     .padding = clay.Padding.all(6),
                     .sizing = .{
@@ -164,7 +165,7 @@ pub fn render(model: Model) void {
         });
 
         clay.ui()(.{
-            .id = clay.id("Content"),
+            .id = main.newId("Content"),
             .layout = .{
                 .sizing = clay.Element.Sizing.grow(.{}),
             },
@@ -173,14 +174,14 @@ pub fn render(model: Model) void {
             const shortcut_width = 260; // TODO customizable
 
             clay.ui()(.{
-                .id = clay.id("ShortcutsContainer"),
+                .id = main.newId("ShortcutsContainer"),
                 .layout = .{
                     .padding = clay.Padding.all(10),
                     .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
                 },
             })({
                 clay.ui()(.{
-                    .id = clay.id("Shortcuts"),
+                    .id = main.newId("Shortcuts"),
                     .layout = .{
                         .layout_direction = .top_to_bottom,
                         .padding = clay.Padding.all(16),
@@ -195,12 +196,12 @@ pub fn render(model: Model) void {
     });
 }
 
-pub fn select(
+fn select(
     model: *Model,
     kind: Entries.Kind,
     index: Entries.Index,
     clicked: bool,
-    select_type: enum { single, multi, bulk },
+    select_type: SelectType,
 ) Error!void {
     const selected = model.entries.data_slices.get(kind).items(.selected);
     if (selected.len <= index) return Model.Error.OutOfBounds;
@@ -229,7 +230,7 @@ pub fn select(
     }
 }
 
-pub fn open_dir(model: *Model, index: Entries.Index) Error!void {
+fn open_dir(model: *Model, index: Entries.Index) Error!void {
     const name_start, const name_end = model.entries.data_slices.get(.dir).items(.name)[index];
     const name = model.entries.names.items[name_start..name_end];
     try model.cwd.append(main.alloc, fs.path.sep);
@@ -245,13 +246,13 @@ pub fn open_dir(model: *Model, index: Entries.Index) Error!void {
     };
 }
 
-pub fn open_parent_dir(model: *Model) Error!void {
+fn open_parent_dir(model: *Model) Error!void {
     const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
     model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
     try model.entries.load_entries(model.cwd.items);
 }
 
-pub fn open_file(model: Model, index: Entries.Index) Error!void {
+fn open_file(model: Model, index: Entries.Index) Error!void {
     const name_start, const name_end = model.entries.data_slices.get(.file).items(.name)[index];
     const name = model.entries.names.items[name_start..name_end];
     const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
@@ -270,7 +271,7 @@ pub fn open_file(model: Model, index: Entries.Index) Error!void {
     _ = try child.spawnAndWait();
 }
 
-pub fn open_vscode(model: Model) Error!void {
+fn open_vscode(model: Model) Error!void {
     const invoker = if (main.windows)
         .{ "cmd", "/c", "code" }
     else
@@ -285,7 +286,7 @@ pub fn open_vscode(model: Model) Error!void {
     _ = try child.spawnAndWait();
 }
 
-pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
     try fmt.format(writer, "cwd: {s}\n", .{model.cwd.items});
     for (Entries.kinds()) |kind| {
         try fmt.format(writer, "{s}s:\n", .{@tagName(kind)});

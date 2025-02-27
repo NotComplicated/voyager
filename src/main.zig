@@ -3,8 +3,10 @@ pub const debug = builtin.mode == .Debug;
 pub const windows = builtin.os.tag == .windows;
 
 const std = @import("std");
+const testing = std.testing;
 const enums = std.enums;
 const heap = std.heap;
+const math = std.math;
 const os = std.os;
 
 const clay = @import("clay");
@@ -27,10 +29,8 @@ const height = 600;
 const mem_scale = 5;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
-pub const alloc = if (debug) alloc: {
-    var logging_page_alloc = heap.loggingAllocator(heap.page_allocator);
-    break :alloc logging_page_alloc.allocator();
-} else heap.page_allocator;
+var logging_page_alloc = heap.loggingAllocator(heap.page_allocator);
+pub const alloc = if (debug) logging_page_alloc.allocator() else heap.page_allocator;
 
 // a buffer for the raylib renderer to use for temporary string copies
 var buf: [4096]u8 = undefined;
@@ -118,6 +118,40 @@ pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
     }
 }
 
+// port of Clay__HashString to allow comptime IDs
+pub fn newId(key: []const u8) clay.Element.Config.Id {
+    return newIdIndexed(key, 0);
+}
+pub fn newIdIndexed(key: []const u8, offset: u32) clay.Element.Config.Id {
+    var hash: u32 = 0;
+    var base: u32 = 0;
+
+    for (key) |c| {
+        base +%= c;
+        base +%= math.shl(u32, base, 10);
+        base ^= math.shr(u32, base, 6);
+    }
+
+    hash = base;
+    hash +%= offset;
+    hash +%= math.shl(u32, hash, 10);
+    hash ^= math.shr(u32, hash, 6);
+
+    hash +%= math.shl(u32, hash, 3);
+    base +%= math.shl(u32, base, 3);
+    hash ^= math.shr(u32, hash, 11);
+    base ^= math.shr(u32, base, 11);
+    hash +%= math.shl(u32, hash, 15);
+    base +%= math.shl(u32, base, 15);
+
+    return .{
+        .id = hash + 1,
+        .offset = offset,
+        .base_id = base + 1,
+        .string_id = key,
+    };
+}
+
 pub fn main() !void {
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
@@ -171,4 +205,40 @@ fn frame(model: *Model) void {
 
     model.render();
     alert.render();
+}
+
+test "ids" {
+    for ([_][]const u8{ "FooBar", "Baz", "" }) |key| {
+        const clay_id = clay.id(key);
+        const clay_get_id = clay.getId(key);
+        const new_id = newId(key);
+
+        try testing.expectEqual(clay_id.id, clay_get_id.id);
+        try testing.expectEqual(clay_id.id, new_id.id);
+
+        try testing.expectEqual(clay_id.base_id, clay_get_id.base_id);
+        try testing.expectEqual(clay_id.base_id, new_id.base_id);
+
+        try testing.expectEqualStrings(clay_id.string_id, clay_get_id.string_id);
+        try testing.expectEqualStrings(clay_id.string_id, new_id.string_id);
+    }
+}
+
+test "offset ids" {
+    const key = "Key";
+    for (0..3) |i| {
+        const offset: u32 = @intCast(i);
+        const clay_id = clay.idi(key, offset);
+        const clay_get_id = clay.getIdi(key, offset);
+        const new_id = newIdIndexed(key, offset);
+
+        try testing.expectEqual(clay_id.id, clay_get_id.id);
+        try testing.expectEqual(clay_id.id, new_id.id);
+
+        try testing.expectEqual(clay_id.base_id, clay_get_id.base_id);
+        try testing.expectEqual(clay_id.base_id, new_id.base_id);
+
+        try testing.expectEqualStrings(clay_id.string_id, clay_get_id.string_id);
+        try testing.expectEqualStrings(clay_id.string_id, new_id.string_id);
+    }
 }

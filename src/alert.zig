@@ -66,7 +66,7 @@ pub fn render() void {
     }
 
     clay.ui()(.{
-        .id = clay.id("ErrorModal"),
+        .id = main.newId("ErrorModal"),
         .floating = .{
             .offset = .{ .x = -24, .y = -24 },
             .z_index = 1,
