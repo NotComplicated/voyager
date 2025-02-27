@@ -2,9 +2,11 @@ const std = @import("std");
 const builtin = std.builtin;
 const ascii = std.ascii;
 const enums = std.enums;
+const json = std.json;
 const meta = std.meta;
 const math = std.math;
 const time = std.time;
+const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -111,9 +113,9 @@ fn kinds() []const Kind {
 }
 
 fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) clay.Element.Config.Id {
-    var kind_name = @tagName(kind).*;
-    kind_name[0] = ascii.toUpper(kind_name[0]);
-    return main.newIdIndexed(kind_name ++ "Entry" ++ suffix, index);
+    comptime var kind_name = @tagName(kind).*;
+    kind_name[0] = comptime ascii.toUpper(kind_name[0]);
+    return main.newIdIndexed(kind_name[0..] ++ "Entry" ++ suffix, index);
 }
 
 fn nanosToMillis(nanos: i128) Millis {
@@ -142,10 +144,11 @@ pub fn update(entries: *Entries, input: Input) ?Message {
     if (!clay.pointerOver(entries_id)) return null;
     if (input.clicked(.left)) {
         inline for (comptime kinds()) |kind| {
-            for (0..entries.data_slices.get(kind).len) |i| {
-                const index: Index = @intCast(i);
-                if (clay.pointerOver(getEntryId(kind, "", index))) {
-                    return entries.select(kind, index, true, .single); // TODO select type
+            var sorted_iter = entries.sorted(kind, &.{});
+            var sorted_index: Index = 0;
+            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
+                    return entries.select(kind, entry.index, true, .single); // TODO select type
                 }
             }
         }
@@ -287,12 +290,23 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
     entries.sort_type = .asc;
 }
 
-fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
+pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
     return .{
         .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
         .slice = entries.data_slices.get(kind),
         .names = entries.names.items,
     };
+}
+
+pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+    for (kinds()) |kind| {
+        try fmt.format(writer, "\n{s}s:\n", .{@tagName(kind)});
+        var array_writer = json.writeStreamMaxDepth(writer, .{ .whitespace = .indent_3 }, null);
+        try array_writer.beginArray();
+        var sorted_iter = entries.sorted(kind, enums.values(meta.FieldEnum(Entry)));
+        while (sorted_iter.next()) |entry| try array_writer.write(entry);
+        try array_writer.endArray();
+    }
 }
 
 fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
@@ -313,14 +327,14 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
                             const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
                             const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
                             const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                            return mem.lessThan(u8, lhs_name, rhs_name);
+                            return ascii.lessThanIgnoreCase(lhs_name, rhs_name);
                         },
                         .ext => {
                             const lhs_start, const lhs_end = passed_entries.data_slices.get(kind).items(.name)[lhs];
                             const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
                             const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
                             const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                            return mem.lessThan(u8, fs.path.extension(lhs_name), fs.path.extension(rhs_name));
+                            return ascii.lessThanIgnoreCase(fs.path.extension(lhs_name), fs.path.extension(rhs_name));
                         },
                         .created => {
                             const created = passed_entries.data_slices.get(kind).items(.created);

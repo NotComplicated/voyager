@@ -189,6 +189,10 @@ pub fn render(model: Model) void {
     });
 }
 
+pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+    try fmt.format(writer, "\ncwd: {s}\nentries: {}", .{ model.cwd.items, model.entries });
+}
+
 fn open_dir(model: *Model, name: []const u8) Error!void {
     try model.cwd.append(main.alloc, fs.path.sep);
     try model.cwd.appendSlice(main.alloc, name);
@@ -239,18 +243,6 @@ fn open_vscode(model: Model) Error!void {
     child.stderr_behavior = .Ignore;
     child.cwd = model.cwd.items;
     _ = try child.spawnAndWait();
-}
-
-fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
-    try fmt.format(writer, "cwd: {s}\n", .{model.cwd.items});
-    for (Entries.kinds()) |kind| {
-        try fmt.format(writer, "{s}s:\n", .{@tagName(kind)});
-        for (0..model.entries.data.get(kind).len) |i| {
-            const name_start, const name_end = model.entries.data_slices.get(kind).items(.name)[i];
-            const name = model.entries.names.items[name_start..name_end];
-            try fmt.format(writer, "\t{d}) {s}\n", .{ i + 1, name });
-        }
-    }
 }
 
 // TODO
