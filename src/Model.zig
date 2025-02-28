@@ -63,11 +63,7 @@ pub fn init() Error!Model {
     };
     errdefer model.deinit();
 
-    const path = fs.realpathAlloc(main.alloc, ".") catch return Error.OutOfMemory;
-    defer main.alloc.free(path);
-    try model.cwd.appendString(path);
-
-    try model.entries.load_entries(path);
+    try model.entries.load_entries(model.cwd.value());
 
     return model;
 }
@@ -77,7 +73,7 @@ pub fn deinit(model: *Model) void {
     model.entries.deinit();
 }
 
-pub fn update(model: *Model, input: Input) !void {
+pub fn update(model: *Model, input: Input) Error!void {
     if (main.debug and input.clicked(.middle)) {
         log.debug("{}\n", .{model});
     } else if (input.clicked(.side)) {
@@ -93,7 +89,12 @@ pub fn update(model: *Model, input: Input) !void {
             }
         }
     }
-    if (model.entries.update(input)) |message| {
+    if (try model.cwd.update(input)) |message| {
+        switch (message) {
+            .submit => |path| try model.entries.load_entries(path),
+        }
+    }
+    if (try model.entries.update(input)) |message| {
         switch (message) {
             .open_dir => |name| try model.open_dir(name),
             .open_file => |name| try model.open_file(name),
@@ -165,8 +166,7 @@ pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer
 }
 
 fn open_dir(model: *Model, name: []const u8) Error!void {
-    try model.cwd.appendString(fs.path.sep_str);
-    try model.cwd.appendString(name);
+    try model.cwd.appendPath(name);
 
     model.entries.load_entries(model.cwd.value()) catch |err| switch (err) {
         Error.DirAccessDenied, Error.OpenDirFailure => {

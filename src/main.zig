@@ -112,7 +112,7 @@ pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
         .string_id = clay.external_typedefs.String.new(id.string_id),
     });
     if (!data.found) {
-        alert.updateFmt("Failed to locate element '{s}:{d}'", .{ id.string_id, id.offset });
+        alert.updateFmt("Failed to locate element '{s}:{}'", .{ id.string_id, id.offset });
         return null;
     } else {
         return data.boundingBox;

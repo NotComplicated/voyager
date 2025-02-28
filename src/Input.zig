@@ -23,6 +23,7 @@ action: ?union(enum) {
         home,
         end,
         escape,
+        enter,
         tab,
         up,
         down,

@@ -140,7 +140,7 @@ pub fn deinit(entries: *Entries) void {
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
 }
 
-pub fn update(entries: *Entries, input: Input) ?Message {
+pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
     if (!clay.pointerOver(entries_id)) return null;
     if (input.clicked(.left)) {
         inline for (comptime kinds()) |kind| {

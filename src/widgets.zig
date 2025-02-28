@@ -8,10 +8,11 @@ const rl = @import("raylib");
 
 const main = @import("main.zig");
 const Bytes = main.Bytes;
+const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
+pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Element.Config.Id) type {
     return struct {
         data: Bytes,
         cursor: union(enum) {
@@ -30,19 +31,99 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
         };
 
         pub fn init() Model.Error!Self {
-            return .{
+            var text_box = Self{
                 .data = try Bytes.initCapacity(main.alloc, 1024),
                 .cursor = .none,
             };
+            errdefer text_box.data.deinit(main.alloc);
+
+            if (kind == .path) {
+                const path = fs.realpathAlloc(main.alloc, ".") catch return Model.Error.OutOfMemory;
+                defer main.alloc.free(path);
+                try text_box.data.appendSlice(main.alloc, path);
+            }
+
+            return text_box;
         }
 
         pub fn deinit(self: *Self) void {
             self.data.deinit(main.alloc);
         }
 
-        pub fn update(self: *Self, input: Input) ?Message {
-            _ = input;
-            return self.data.items;
+        pub fn update(self: *Self, input: Input) Model.Error!?Message {
+            switch (self.cursor) {
+                .none => {
+                    //
+                },
+                .at => |index| {
+                    switch (input.action orelse return null) {
+                        .mouse => |mouse| {
+                            _ = mouse;
+                            // TODO
+                        },
+                        .key => |key| {
+                            switch (key) {
+                                .char => |char| {
+                                    if (input.ctrl) {
+                                        switch (char) {
+                                            'c' => {
+                                                try self.data.append(main.alloc, 0);
+                                                defer _ = self.data.pop();
+                                                rl.setClipboardText(@ptrCast(self.value()));
+                                            },
+                                            'v' => {
+                                                const clipboard = mem.span(rl.getClipboardText());
+                                                if (clipboard.len > max_paste_len) {
+                                                    alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
+                                                    return null;
+                                                }
+                                                try self.data.insertSlice(main.alloc, index, clipboard);
+                                                self.cursor.at += clipboard.len;
+                                            },
+                                            else => {},
+                                        }
+                                    } else {
+                                        try self.data.insert(main.alloc, index, char);
+                                        self.cursor.at += 1;
+                                    }
+                                },
+
+                                .delete => if (index < self.value().len)
+                                    if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
+
+                                .backspace => if (input.ctrl)
+                                    self.removeCursorToPrevSep()
+                                else if (index > 0) {
+                                    self.cursor.at -= 1;
+                                    self.removeCursor();
+                                },
+
+                                .escape, .tab => self.cursor = .none,
+
+                                .enter => return .{ .submit = self.value() },
+
+                                .up, .home => self.cursor.at = 0,
+
+                                .down, .end => self.cursor.at = self.value().len,
+
+                                .left => self.cursor.at = if (input.ctrl)
+                                    toPrevSep(self.value(), index)
+                                else if (index > 0) index - 1 else index,
+
+                                .right => self.cursor.at = if (input.ctrl)
+                                    toNextSep(self.value(), index)
+                                else if (index < self.value().len) index + 1 else index,
+                            }
+                        },
+                    }
+                },
+                .select => |*selection| {
+                    _ = selection;
+                    // TODO
+                },
+            }
+
+            return null;
         }
 
         pub fn render(self: Self) void {
@@ -56,7 +137,7 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
                     },
                     .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
                 },
-                .rectangle = .{ //TODO color based on if editing
+                .rectangle = .{
                     .color = if (self.cursor == .none) main.theme.nav else main.theme.selected,
                     .corner_radius = main.rounded,
                 },
@@ -88,183 +169,73 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
             });
         }
 
-        // TODO move to update
-        pub fn handleKey(text_box: *TextBox, key: rl.KeyboardKey, shift: bool, ctrl: bool) !void {
-            if (!text_box.editing) {
-                return;
-            }
-
-            const key_int = @intFromEnum(key);
-            const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
-            const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
-                @intCast(key_int)
-            else if (320 <= key_int and key_int <= 329) // numpad
-                @intCast(key_int - (320 - 48))
-            else
-                null;
-            const as_punc: ?u8 = switch (key) {
-                .apostrophe => '\'',
-                .comma => ',',
-                .minus => '-',
-                .period => '.',
-                .slash => '/',
-                .semicolon => ';',
-                .equal => '=',
-                .space => ' ',
-                .left_bracket => '[',
-                .backslash => '\\',
-                .right_bracket => ']',
-                .grave => '`',
-                else => null,
-            };
-            const word_sep = if (kind == .path) fs.path.sep else ' ';
-
-            switch (key) {
-                .backspace => {
-                    if (ctrl) {
-                        const maybe_last_sep = mem.lastIndexOfScalar(u8, text_box.cwd.items[0..text_box.cursor], word_sep);
-                        if (maybe_last_sep) |last_sep| {
-                            if (text_box.cursor == last_sep + 1) {
-                                text_box.cursor -= 1;
-                                _ = text_box.cwd.orderedRemove(text_box.cursor);
-                            } else {
-                                text_box.cwd.replaceRangeAssumeCapacity(last_sep, text_box.cursor - last_sep, "");
-                                text_box.cursor = last_sep;
-                            }
-                        } else {
-                            text_box.cwd.shrinkRetainingCapacity(0);
-                            text_box.cursor = 0;
-                        }
-                    } else if (text_box.cursor > 0) {
-                        _ = text_box.cwd.orderedRemove(text_box.cursor - 1);
-                        text_box.cursor -= 1;
-                    }
-                },
-                .delete => if (text_box.cursor < text_box.cwd.items.len) {
-                    if (ctrl) {
-                        const maybe_next_sep = mem.indexOfScalarPos(u8, text_box.cwd.items, text_box.cursor, word_sep);
-                        if (maybe_next_sep) |next_sep| {
-                            if (text_box.cursor == next_sep) {
-                                _ = text_box.cwd.orderedRemove(text_box.cursor);
-                            } else {
-                                text_box.cwd.replaceRangeAssumeCapacity(text_box.cursor, next_sep - text_box.cursor, "");
-                            }
-                        } else {
-                            text_box.cwd.shrinkRetainingCapacity(text_box.cursor);
-                        }
-                    } else {
-                        _ = text_box.cwd.orderedRemove(text_box.cursor);
-                    }
-                },
-                .tab, .escape => text_box.exitEditing(),
-                .enter => try text_box.entries.load_entries(text_box.cwd.items),
-                .up, .home => text_box.cursor = 0,
-                .down, .end => text_box.cursor = @intCast(text_box.cwd.items.len),
-                .left => {
-                    if (ctrl) {
-                        const maybe_prev_sep = mem.lastIndexOfScalar(u8, text_box.cwd.items[0..text_box.cursor], word_sep);
-                        if (maybe_prev_sep) |prev_sep| {
-                            if (text_box.cursor == prev_sep + 1) {
-                                text_box.cursor -= 1;
-                            } else {
-                                text_box.cursor = prev_sep + 1;
-                            }
-                        } else {
-                            text_box.cursor = 0;
-                        }
-                    } else if (text_box.cursor > 0) {
-                        text_box.cursor -= 1;
-                    }
-                },
-                .right => {
-                    if (ctrl) {
-                        const maybe_next_sep = mem.indexOfScalarPos(u8, text_box.cwd.items, text_box.cursor, word_sep);
-                        if (maybe_next_sep) |next_sep| {
-                            if (text_box.cursor == next_sep) {
-                                text_box.cursor += 1;
-                            } else {
-                                text_box.cursor = next_sep;
-                            }
-                        } else {
-                            text_box.cursor = @intCast(text_box.cwd.items.len);
-                        }
-                    } else if (text_box.cursor < text_box.cwd.items.len) {
-                        text_box.cursor += 1;
-                    }
-                },
-
-                else => {
-                    const maybe_char: ?u8 = if (as_alpha) |alpha|
-                        if (!shift) ascii.toLower(alpha) else alpha
-                    else if (as_num) |num|
-                        if (shift) switch (num) {
-                            '1' => '!',
-                            '2' => '@',
-                            '3' => '#',
-                            '4' => '$',
-                            '5' => '%',
-                            '6' => '^',
-                            '7' => '&',
-                            '8' => '*',
-                            '9' => '(',
-                            '0' => ')',
-                            else => unreachable,
-                        } else num
-                    else if (as_punc) |punc|
-                        if (shift) switch (punc) {
-                            '\'' => '"',
-                            ',' => '<',
-                            '-' => '_',
-                            '.' => '>',
-                            '/' => '?',
-                            ';' => ':',
-                            '=' => '+',
-                            ' ' => ' ',
-                            '[' => '{',
-                            '\\' => '|',
-                            ']' => '}',
-                            '`' => '~',
-                            else => unreachable,
-                        } else punc
-                    else
-                        null;
-
-                    if (maybe_char) |char| {
-                        if (ctrl) {
-                            switch (char) {
-                                'c' => {
-                                    try text_box.cwd.append(main.alloc, 0);
-                                    defer _ = text_box.cwd.pop();
-                                    rl.setClipboardText(@ptrCast(text_box.cwd.items.ptr));
-                                },
-                                'v' => {
-                                    var clipboard: []const u8 = mem.span(rl.getClipboardText());
-                                    if (clipboard.len > max_paste_len) clipboard = clipboard[0..max_paste_len];
-                                    try text_box.cwd.insertSlice(main.alloc, text_box.cursor, clipboard);
-                                    text_box.cursor += @intCast(clipboard.len);
-                                },
-                                else => {},
-                            }
-                        } else {
-                            try text_box.cwd.insert(main.alloc, text_box.cursor, char);
-                            text_box.cursor += 1;
-                        }
-                    }
-                },
-            }
-        }
-
         pub fn value(self: Self) []const u8 {
             return self.data.items;
         }
 
-        pub fn appendString(self: *Self, string: []const u8) Model.Error!void {
-            return self.data.appendSlice(main.alloc, string);
-        }
-
-        pub fn popPath(self: *Self) if (kind == .path) void else @compileError("popPath only works on paths") {
+        pub fn popPath(self: *Self) void {
+            if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
             self.data.shrinkRetainingCapacity(parent_dir_path.len);
+        }
+
+        pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
+            if (kind != .path) @compileError("appendPath only works on paths");
+            try self.data.append(main.alloc, fs.path.sep);
+            return self.data.appendSlice(main.alloc, entry_name);
+        }
+
+        fn removeCursor(self: *Self) void {
+            switch (self.cursor) {
+                .none => {},
+                .at => |index| _ = self.data.orderedRemove(index),
+                .select => |selection| {
+                    self.data.replaceRangeAssumeCapacity(selection.from, selection.to - selection.from, "");
+                    self.cursor = .{ .at = selection.from };
+                },
+            }
+        }
+
+        fn removeCursorToNextSep(self: *Self) void {
+            switch (self.cursor) {
+                .none => {},
+                .at => |index| self.data.replaceRangeAssumeCapacity(index, toNextSep(self.value(), index) - index, ""),
+                .select => self.removeCursor(),
+            }
+        }
+
+        fn removeCursorToPrevSep(self: *Self) void {
+            switch (self.cursor) {
+                .none => {},
+                .at => |index| {
+                    const prev = toPrevSep(self.value(), index);
+                    self.data.replaceRangeAssumeCapacity(prev, index - prev, "");
+                    self.cursor.at = prev;
+                },
+                .select => self.removeCursor(),
+            }
+        }
+
+        fn toNextSep(string: []const u8, index: usize) usize {
+            if (mem.indexOfScalarPos(u8, string, index, @intFromEnum(kind))) |next_sep| {
+                return if (index == next_sep)
+                    mem.indexOfScalarPos(u8, string, index + 1, @intFromEnum(kind)) orelse string.len
+                else
+                    next_sep;
+            } else {
+                return string.len;
+            }
+        }
+
+        fn toPrevSep(string: []const u8, index: usize) usize {
+            if (mem.lastIndexOfScalar(u8, string[0..index], @intFromEnum(kind))) |prev_sep| {
+                return if (index == prev_sep + 1)
+                    mem.lastIndexOfScalar(u8, string[0 .. index - 1], @intFromEnum(kind)) orelse 0
+                else
+                    prev_sep;
+            } else {
+                return 0;
+            }
         }
     };
 }
