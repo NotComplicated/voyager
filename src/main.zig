@@ -55,6 +55,7 @@ pub const theme = .{
     .alert = rgb(228, 66, 38),
     .text = rgb(205, 214, 244),
     .bright_text = rgb(255, 255, 255),
+    .sapphire = rgb(116, 199, 236),
     .nav = rgb(43, 43, 58),
     .base = rgb(30, 30, 46),
     .hovered = rgb(43, 43, 58),

@@ -122,7 +122,7 @@ fn nanosToMillis(nanos: i128) Millis {
     return @intCast(@divFloor(nanos, time.ns_per_ms));
 }
 
-pub fn init() !Entries {
+pub fn init() Model.Error!Entries {
     return .{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
         .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),

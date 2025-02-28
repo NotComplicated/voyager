@@ -12,13 +12,14 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const Bytes = main.Bytes;
 const Millis = main.Millis;
 const resources = @import("resources.zig");
 const Input = @import("Input.zig");
+const widgets = @import("widgets.zig");
+const TextBox = widgets.TextBox;
 const Entries = @import("Entries.zig");
 
-cwd: Bytes,
+cwd: TextBox(.path, main.newId("CurrentDir")),
 entries: Entries,
 
 const Model = @This();
@@ -30,8 +31,8 @@ pub const Error = error{
     DirAccessDenied,
 } || mem.Allocator.Error || process.Child.SpawnError;
 
+pub const row_height = 30;
 const max_paste_len = 1024;
-const nav_size = 30;
 const nav_buttons = .{
     .parent = main.newId("Parent"),
     .refresh = main.newId("Refresh"),
@@ -41,10 +42,10 @@ const nav_buttons = .{
 fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
     clay.ui()(.{
         .id = id,
-        .layout = .{ .sizing = clay.Element.Sizing.fixed(nav_size) },
+        .layout = .{ .sizing = clay.Element.Sizing.fixed(row_height) },
         .image = .{
             .image_data = icon,
-            .source_dimensions = clay.Dimensions.square(nav_size),
+            .source_dimensions = clay.Dimensions.square(row_height),
         },
         .rectangle = .{
             .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.base,
@@ -55,16 +56,16 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
     });
 }
 
-pub fn init() !Model {
+pub fn init() Error!Model {
     var model = Model{
-        .cwd = try Bytes.initCapacity(main.alloc, 1024),
+        .cwd = try meta.FieldType(Model, .cwd).init(),
         .entries = try Entries.init(),
     };
     errdefer model.deinit();
 
-    const path = try fs.realpathAlloc(main.alloc, ".");
+    const path = fs.realpathAlloc(main.alloc, ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
-    try model.cwd.appendSlice(main.alloc, path);
+    try model.cwd.appendString(path);
 
     try model.entries.load_entries(path);
 
@@ -72,7 +73,7 @@ pub fn init() !Model {
 }
 
 pub fn deinit(model: *Model) void {
-    model.cwd.deinit(main.alloc);
+    model.cwd.deinit();
     model.entries.deinit();
 }
 
@@ -86,7 +87,7 @@ pub fn update(model: *Model, input: Input) !void {
             if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                 switch (button) {
                     .parent => try model.open_parent_dir(),
-                    .refresh => try model.entries.load_entries(model.cwd.items),
+                    .refresh => try model.entries.load_entries(model.cwd.value()),
                     .vscode => try model.open_vscode(),
                 }
             }
@@ -122,37 +123,7 @@ pub fn render(model: Model) void {
             renderNavButton(nav_buttons.parent, &resources.images.arrow_up);
             renderNavButton(nav_buttons.refresh, &resources.images.refresh);
 
-            clay.ui()(.{
-                .id = main.newId("CurrentDir"),
-                .layout = .{
-                    .padding = clay.Padding.all(6),
-                    .sizing = .{
-                        .width = .{ .type = .grow },
-                        .height = clay.Element.Sizing.Axis.fixed(nav_size),
-                    },
-                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
-                },
-                .rectangle = .{ //TODO color based on if editing
-                    .color = if (model.cwd.items.len > 0) main.theme.selected else main.theme.nav,
-                    .corner_radius = main.rounded,
-                },
-            })({
-                main.pointer();
-                if (@as(?usize, 0)) |cursor_index| { //TODO get pos from text box
-                    main.textEx(.roboto_mono, .sm, model.cwd.items[0..cursor_index], main.theme.text);
-                    clay.ui()(.{
-                        .floating = .{
-                            .offset = .{ .x = @floatFromInt(cursor_index * 9), .y = -2 },
-                            .attachment = .{ .element = .left_center, .parent = .left_center },
-                        },
-                    })({
-                        main.textEx(.roboto_mono, .md, "|", main.theme.bright_text);
-                    });
-                    main.textEx(.roboto_mono, .sm, model.cwd.items[cursor_index..], main.theme.text);
-                } else {
-                    main.textEx(.roboto_mono, .sm, model.cwd.items, main.theme.text);
-                }
-            });
+            model.cwd.render();
 
             renderNavButton(nav_buttons.vscode, &resources.images.vscode);
         });
@@ -190,17 +161,16 @@ pub fn render(model: Model) void {
 }
 
 pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
-    try fmt.format(writer, "\ncwd: {s}\nentries: {}", .{ model.cwd.items, model.entries });
+    try fmt.format(writer, "\ncwd: {s}\nentries: {}", .{ model.cwd.value(), model.entries });
 }
 
 fn open_dir(model: *Model, name: []const u8) Error!void {
-    try model.cwd.append(main.alloc, fs.path.sep);
-    try model.cwd.appendSlice(main.alloc, name);
+    try model.cwd.appendString(fs.path.sep_str);
+    try model.cwd.appendString(name);
 
-    model.entries.load_entries(model.cwd.items) catch |err| switch (err) {
+    model.entries.load_entries(model.cwd.value()) catch |err| switch (err) {
         Error.DirAccessDenied, Error.OpenDirFailure => {
-            model.cwd.shrinkRetainingCapacity(model.cwd.items.len - name.len - 1);
-            try model.entries.load_entries(model.cwd.items);
+            model.cwd.popPath();
             return err;
         },
         else => return err,
@@ -208,13 +178,12 @@ fn open_dir(model: *Model, name: []const u8) Error!void {
 }
 
 fn open_parent_dir(model: *Model) Error!void {
-    const parent_dir_path = fs.path.dirname(model.cwd.items) orelse return;
-    model.cwd.shrinkRetainingCapacity(parent_dir_path.len);
-    try model.entries.load_entries(model.cwd.items);
+    model.cwd.popPath();
+    try model.entries.load_entries(model.cwd.value());
 }
 
 fn open_file(model: Model, name: []const u8) Error!void {
-    const path = try fs.path.join(main.alloc, &.{ model.cwd.items, name });
+    const path = try fs.path.join(main.alloc, &.{ model.cwd.value(), name });
     defer main.alloc.free(path);
     const invoker = if (main.windows)
         .{ "cmd", "/c", "start" }
@@ -226,7 +195,7 @@ fn open_file(model: Model, name: []const u8) Error!void {
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
-    child.cwd = model.cwd.items;
+    child.cwd = model.cwd.value();
     _ = try child.spawnAndWait();
 }
 
@@ -235,13 +204,13 @@ fn open_vscode(model: Model) Error!void {
         .{ "cmd", "/c", "code" }
     else
         return Error.OsNotSupported;
-    const argv = invoker ++ .{model.cwd.items};
+    const argv = invoker ++ .{model.cwd.value()};
 
     var child = process.Child.init(&argv, main.alloc);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
-    child.cwd = model.cwd.items;
+    child.cwd = model.cwd.value();
     _ = try child.spawnAndWait();
 }
 

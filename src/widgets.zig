@@ -14,8 +14,11 @@ const Model = @import("Model.zig");
 pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
     return struct {
         data: Bytes,
-        editing: bool,
-        selection: struct { from: ?usize, to: ?usize },
+        cursor: union(enum) {
+            none,
+            at: usize,
+            select: struct { from: usize, to: usize },
+        },
 
         const max_paste_len = 1024;
         const char_px_width = 9;
@@ -26,12 +29,10 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
             submit: []const u8,
         };
 
-        pub fn init() !Self {
+        pub fn init() Model.Error!Self {
             return .{
-                .data = try Bytes.init(main.alloc, 256),
-                .selection = .{ .from = null, .to = null },
-                .editing = false,
-                .id = id,
+                .data = try Bytes.initCapacity(main.alloc, 1024),
+                .cursor = .none,
             };
         }
 
@@ -44,28 +45,46 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
             return self.data.items;
         }
 
-        pub fn setFocus(text_box: *TextBox, focused: bool) void {
-            text_box.editing = focused;
-        }
-
-        pub fn mousePressed(text_box: *TextBox, index: usize) void {
-            text_box.editing.selection.from = index;
-        }
-
-        pub fn mouseReleased(text_box: *TextBox, index: usize) void {
-            text_box.editing.selection.to = index;
-            if (text_box.editing.selection.from) |*from| {
-                if (text_box.editing.selection.to.? < from.*) {
-                    mem.swap(?usize, &text_box.editing.selection.to, from);
-                }
-            }
-        }
-
         pub fn render(self: Self) void {
             clay.ui()(.{
                 .id = id,
+                .layout = .{
+                    .padding = clay.Padding.all(6),
+                    .sizing = .{
+                        .width = .{ .type = .grow },
+                        .height = clay.Element.Sizing.Axis.fixed(Model.row_height),
+                    },
+                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                },
+                .rectangle = .{ //TODO color based on if editing
+                    .color = if (self.cursor == .none) main.theme.nav else main.theme.selected,
+                    .corner_radius = main.rounded,
+                },
             })({
-                _ = self;
+                main.pointer();
+                switch (self.cursor) {
+                    .none => {
+                        // TODO special rendering for paths?
+                        main.textEx(.roboto_mono, .sm, self.data.items, main.theme.text);
+                    },
+                    .at => |index| {
+                        main.textEx(.roboto_mono, .sm, self.data.items[0..index], main.theme.text);
+                        clay.ui()(.{
+                            .floating = .{
+                                .offset = .{ .x = @floatFromInt(index * 9), .y = -2 },
+                                .attachment = .{ .element = .left_center, .parent = .left_center },
+                            },
+                        })({
+                            main.textEx(.roboto_mono, .md, "|", main.theme.bright_text);
+                        });
+                        main.textEx(.roboto_mono, .sm, self.data.items[index..], main.theme.text);
+                    },
+                    .select => |selection| {
+                        main.textEx(.roboto_mono, .sm, self.data.items[0..selection.from], main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.data.items[selection.from..selection.to], main.theme.sapphire);
+                        main.textEx(.roboto_mono, .sm, self.data.items[selection.to..], main.theme.text);
+                    },
+                }
             });
         }
 
@@ -233,6 +252,19 @@ pub fn TextBox(kind: enum { path, text }, id: clay.Element.Config.Id) type {
                     }
                 },
             }
+        }
+
+        pub fn value(self: Self) []const u8 {
+            return self.data.items;
+        }
+
+        pub fn appendString(self: *Self, string: []const u8) Model.Error!void {
+            return self.data.appendSlice(main.alloc, string);
+        }
+
+        pub fn popPath(self: *Self) if (kind == .path) void else @compileError("popPath only works on paths") {
+            const parent_dir_path = fs.path.dirname(self.value()) orelse return;
+            self.data.shrinkRetainingCapacity(parent_dir_path.len);
         }
     };
 }
