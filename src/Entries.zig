@@ -161,6 +161,20 @@ const max_name_chars = 32;
 const size_chars = 20;
 const timespan_chars = 20;
 
+const size_sizing = clay.Element.Sizing{
+    .width = clay.Element.Sizing.Axis.fit(.{
+        .min = size_chars * char_px_width,
+        .max = size_chars * char_px_width,
+    }),
+};
+
+const timespan_sizing = clay.Element.Sizing{
+    .width = clay.Element.Sizing.Axis.fit(.{
+        .min = timespan_chars * char_px_width,
+        .max = timespan_chars * char_px_width,
+    }),
+};
+
 fn kinds() []const Kind {
     return enums.values(Kind);
 }
@@ -228,20 +242,69 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
 }
 
 pub fn render(entries: Entries) void {
+    const name_sizing = clay.Element.Sizing{
+        .width = clay.Element.Sizing.Axis.fit(.{
+            .min = @max(@as(f32, @floatFromInt(entries.max_name_len)), min_name_chars) * char_px_width,
+            .max = max_name_chars * char_px_width,
+        }),
+    };
+
     clay.ui()(.{
         .id = main.newId("EntriesContainer"),
         .layout = .{
-            .padding = clay.Padding.all(10),
+            .padding = .{ .left = 10, .right = 10, .top = 5, .bottom = 5 },
             .sizing = clay.Element.Sizing.grow(.{}),
+            .layout_direction = .top_to_bottom,
         },
     })({
         clay.ui()(.{
+            .id = main.newId("EntriesColumns"),
+            .layout = .{
+                .padding = .{ .top = 4, .bottom = 4, .left = 12 },
+                .sizing = .{ .width = .{ .type = .grow } },
+                .child_alignment = .{ .y = .center },
+                .child_gap = 4,
+            },
+        })({
+            clay.ui()(.{
+                .id = main.newId("EntriesColumnPad"),
+                .layout = .{
+                    .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
+                },
+            })({});
+
+            const column = struct {
+                fn f(comptime name: []const u8, sizing: clay.Element.Sizing) void {
+                    const id = main.newId("EntriesColumn" ++ name);
+                    clay.ui()(.{
+                        .id = id,
+                        .layout = .{
+                            .padding = clay.Padding.all(6),
+                            .sizing = sizing,
+                        },
+                        .rectangle = .{
+                            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.mantle,
+                            .corner_radius = main.rounded,
+                        },
+                    })({
+                        main.pointer();
+                        main.text(name);
+                    });
+                }
+            }.f;
+            column("Name", name_sizing);
+            column("Size", size_sizing);
+            column("Created", timespan_sizing);
+            column("Modified", timespan_sizing);
+        });
+
+        clay.ui()(.{
             .id = entries_id,
             .layout = .{
-                .layout_direction = .top_to_bottom,
                 .padding = clay.Padding.all(10),
                 .sizing = clay.Element.Sizing.grow(.{}),
                 .child_gap = 4,
+                .layout_direction = .top_to_bottom,
             },
             .scroll = .{ .vertical = true },
             .rectangle = .{ .color = main.theme.base, .corner_radius = main.rounded },
@@ -261,7 +324,7 @@ pub fn render(entries: Entries) void {
                         .layout = .{
                             .padding = .{ .top = 4, .bottom = 4, .left = 8 },
                             .sizing = .{ .width = .{ .type = .grow } },
-                            .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                            .child_alignment = .{ .y = .center },
                             .child_gap = 4,
                         },
                         .rectangle = .{
@@ -303,12 +366,7 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Name", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
-                                .sizing = .{
-                                    .width = clay.Element.Sizing.Axis.fit(.{
-                                        .min = @max(@as(f32, @floatFromInt(entries.max_name_len)), min_name_chars) * char_px_width,
-                                        .max = max_name_chars * char_px_width,
-                                    }),
-                                },
+                                .sizing = name_sizing,
                             },
                         })({
                             if (entry.name.len > max_name_chars) {
@@ -321,12 +379,7 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Size", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
-                                .sizing = .{
-                                    .width = clay.Element.Sizing.Axis.fit(.{
-                                        .min = size_chars * char_px_width,
-                                        .max = size_chars * char_px_width,
-                                    }),
-                                },
+                                .sizing = size_sizing,
                             },
                         })({
                             main.text(switch (kind) {
@@ -339,12 +392,7 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Created", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
-                                .sizing = .{
-                                    .width = clay.Element.Sizing.Axis.fit(.{
-                                        .min = timespan_chars * char_px_width,
-                                        .max = timespan_chars * char_px_width,
-                                    }),
-                                },
+                                .sizing = timespan_sizing,
                             },
                         })({
                             if (entry.created) |created| {
@@ -362,12 +410,7 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Modified", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
-                                .sizing = .{
-                                    .width = clay.Element.Sizing.Axis.fit(.{
-                                        .min = timespan_chars * char_px_width,
-                                        .max = timespan_chars * char_px_width,
-                                    }),
-                                },
+                                .sizing = timespan_sizing,
                             },
                         })({
                             switch (entry.modified) {
