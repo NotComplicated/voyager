@@ -23,7 +23,7 @@ const Model = @import("Model.zig");
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = 1200 + if (debug) 400 else 0;
 const height = 600;
-const mem_scale = 5;
+const mem_scale = 8;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
@@ -49,7 +49,7 @@ pub fn opacity(color: clay.Color, alpha: f32) clay.Color {
 }
 
 pub const theme = .{
-    .alert = rgb(228, 66, 38),
+    .alert = rgb(247, 55, 87),
     .text = rgb(205, 214, 244),
     .bright_text = rgb(255, 255, 255),
     .sapphire = rgb(116, 199, 236),

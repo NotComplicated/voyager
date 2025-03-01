@@ -11,6 +11,7 @@ const mem = std.mem;
 const fs = std.fs;
 
 const clay = @import("clay");
+const rl = @import("raylib");
 
 const main = @import("main.zig");
 const resources = @import("resources.zig");
@@ -90,14 +91,26 @@ const Sorting = enum {
     created,
     modified,
     size,
+
+    fn toTitle(sorting: Sorting) []const u8 {
+        return switch (sorting) {
+            .name => "Name",
+            .ext => "Type",
+            .created => "Created",
+            .modified => "Modified",
+            .size => "Size",
+        };
+    }
 };
 
 const Entry = struct {
     name: [2]u32,
+    size: u64,
     selected: ?i64, // TODO replace with more naive frame calculation?
     created: ?Timespan,
     modified: Timespan,
-    size: u64,
+    created_millis: ?u64,
+    modified_millis: u64,
     readonly: bool,
 };
 
@@ -153,7 +166,7 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     };
 }
 
-const entries_id = main.newId("Entries");
+const container_id = main.newId("EntriesContainer");
 const double_click_delay = 300;
 const char_px_width = 10;
 const min_name_chars = 16;
@@ -185,6 +198,10 @@ fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) cl
     return main.newIdIndexed(kind_name[0..] ++ "Entry" ++ suffix, index);
 }
 
+fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Element.Config.Id {
+    return main.newId("EntriesColumn" ++ title ++ suffix);
+}
+
 fn twoDigitString(n: u7) []const u8 {
     const one_digits = "0123456789";
     const two_digits =
@@ -194,6 +211,10 @@ fn twoDigitString(n: u7) []const u8 {
         "6061626364656667686970717273747576777879" ++
         "8081828384858687888990919293949596979899";
     return if (n < 10) one_digits[n..][0..1] else two_digits[n * 2 ..][0..2];
+}
+
+fn nanosToMillis(nanos: i128) u64 {
+    return math.lossyCast(u64, @divTrunc(nanos, time.ns_per_ms));
 }
 
 pub fn init() Model.Error!Entries {
@@ -218,8 +239,19 @@ pub fn deinit(entries: *Entries) void {
 }
 
 pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
-    if (!clay.pointerOver(entries_id)) return null;
+    if (!clay.pointerOver(container_id)) return null;
     if (input.clicked(.left)) {
+        inline for (comptime enums.values(Sorting)) |sorting| {
+            if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
+                if (entries.curr_sorting == sorting) {
+                    entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
+                } else {
+                    try entries.sort(sorting);
+                    entries.sort_type = .asc;
+                }
+                return null;
+            }
+        }
         inline for (comptime kinds()) |kind| {
             var sorted_iter = entries.sorted(kind, &.{});
             var sorted_index: Index = 0;
@@ -250,7 +282,7 @@ pub fn render(entries: Entries) void {
     };
 
     clay.ui()(.{
-        .id = main.newId("EntriesContainer"),
+        .id = container_id,
         .layout = .{
             .padding = .{ .left = 10, .right = 10, .top = 5, .bottom = 5 },
             .sizing = clay.Element.Sizing.grow(.{}),
@@ -274,13 +306,15 @@ pub fn render(entries: Entries) void {
             })({});
 
             const column = struct {
-                fn f(comptime name: []const u8, sizing: clay.Element.Sizing) void {
-                    const id = main.newId("EntriesColumn" ++ name);
+                fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Element.Sizing) void {
+                    const title = comptime sorting.toTitle();
+                    const id = getColumnId(title, "");
                     clay.ui()(.{
                         .id = id,
                         .layout = .{
-                            .padding = clay.Padding.all(6),
+                            .padding = clay.Padding.xy(10, 6),
                             .sizing = sizing,
+                            .child_gap = 24,
                         },
                         .rectangle = .{
                             .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.mantle,
@@ -288,18 +322,37 @@ pub fn render(entries: Entries) void {
                         },
                     })({
                         main.pointer();
-                        main.text(name);
+                        main.text(title);
+                        clay.ui()(.{
+                            .id = getColumnId(title, "Pad"),
+                            .layout = .{
+                                .sizing = .{ .width = .{ .type = .grow } },
+                            },
+                        })({});
+                        clay.ui()(.{
+                            .id = getColumnId(title, "Sort"),
+                            .layout = .{
+                                .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(20) },
+                            },
+                            .image = if (passed_entries.curr_sorting == sorting) .{
+                                .image_data = if (passed_entries.sort_type == .asc)
+                                    &resources.images.sort_asc
+                                else
+                                    &resources.images.sort_desc,
+                                .source_dimensions = clay.Dimensions.square(20),
+                            } else null,
+                        })({});
                     });
                 }
             }.f;
-            column("Name", name_sizing);
-            column("Size", size_sizing);
-            column("Created", timespan_sizing);
-            column("Modified", timespan_sizing);
+            column(entries, .name, name_sizing);
+            column(entries, .size, size_sizing);
+            column(entries, .created, timespan_sizing);
+            column(entries, .modified, timespan_sizing);
         });
 
         clay.ui()(.{
-            .id = entries_id,
+            .id = main.newId("Entries"),
             .layout = .{
                 .padding = clay.Padding.all(10),
                 .sizing = clay.Element.Sizing.grow(.{}),
@@ -471,10 +524,12 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
             main.alloc,
             .{
                 .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
+                .size = metadata.size(),
                 .selected = null,
                 .created = if (metadata.created()) |created| Timespan.fromNanos(now - created) else null,
                 .modified = Timespan.fromNanos(now - metadata.modified()),
-                .size = metadata.size(),
+                .created_millis = if (metadata.created()) |created| nanosToMillis(created) else null,
+                .modified_millis = nanosToMillis(metadata.modified()),
                 .readonly = metadata.permissions().readOnly(),
             },
         );
@@ -538,11 +593,11 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
                             fs.path.extension(getName(passed_entries, rhs)),
                         ),
                         .created => {
-                            const created = passed_entries.data_slices.get(kind).items(.created);
-                            return created[lhs] < created[rhs];
+                            const created = passed_entries.data_slices.get(kind).items(.created_millis);
+                            return created[lhs] orelse 0 < created[rhs] orelse 0;
                         },
                         .modified => {
-                            const modified = passed_entries.data_slices.get(kind).items(.modified);
+                            const modified = passed_entries.data_slices.get(kind).items(.modified_millis);
                             return modified[lhs] < modified[rhs];
                         },
                         .size => {
@@ -611,8 +666,4 @@ fn jump(entries: *Entries, char: u8) void {
             }
         }
     }
-}
-
-fn toggle_sort_type(entries: *Entries) void {
-    entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
 }

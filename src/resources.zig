@@ -42,6 +42,8 @@ const image_filenames = .{
     .image = "image.png",
     .refresh = "refresh.png",
     .vscode = "vs-code.png",
+    .sort_asc = "sort-asc.png",
+    .sort_desc = "sort-desc.png",
 };
 
 pub var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;
