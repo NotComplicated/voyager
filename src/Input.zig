@@ -8,7 +8,6 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const Millis = main.Millis;
 
 mouse_pos: clay.Vector2,
 action: ?union(enum) {
@@ -38,10 +37,10 @@ const Input = @This();
 
 var maybe_prev_key: ?struct {
     key: rl.KeyboardKey,
-    timer: union(enum) { start: Millis, repeat: Millis },
+    timer: union(enum) { start: i64, repeat: i64 },
 } = null;
-const hold_down_init_delay: Millis = 400;
-const hold_down_repeat_delay: Millis = 50;
+const hold_down_init_delay = 400;
+const hold_down_repeat_delay = 50;
 
 pub fn read() Input {
     const mouse_pos = main.convertVector(rl.getMousePosition());

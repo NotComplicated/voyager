@@ -7,15 +7,13 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const Bytes = main.Bytes;
-const Millis = main.Millis;
 const Model = @import("Model.zig");
 
-const error_duration: Millis = 1_500;
-const error_fade_duration: Millis = 300;
+const error_duration = 1_500;
+const error_fade_duration = 300;
 const unexpected_error = "Unexpected Error";
 
-var alert: struct { timer: Millis, msg: Bytes } = .{ .timer = 0, .msg = .{} };
+var alert: struct { timer: u32, msg: std.ArrayListUnmanaged(u8) } = .{ .timer = 0, .msg = .{} };
 
 pub fn update(err: anyerror) void {
     if (err == error.OutOfMemory) process.abort();
@@ -56,7 +54,7 @@ pub inline fn updateClay(err_data: clay.Error.Data) void {
 }
 
 pub fn render() void {
-    const delta_ms: Millis = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
+    const delta_ms: u32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
     if (alert.timer < delta_ms) return;
     alert.timer -= delta_ms;
 

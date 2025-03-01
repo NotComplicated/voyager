@@ -20,17 +20,14 @@ const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-pub const Bytes = std.ArrayListUnmanaged(u8);
-pub const Millis = i64;
-
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
-const width = 1000 + if (debug) 400 else 0;
+const width = 1200 + if (debug) 400 else 0;
 const height = 600;
 const mem_scale = 5;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
-var logging_page_alloc = heap.loggingAllocator(heap.page_allocator);
-pub const alloc = if (debug) logging_page_alloc.allocator() else heap.page_allocator;
+var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
+pub const alloc = if (debug) logging_page_alloc.allocator() else heap.c_allocator;
 
 // a buffer for the raylib renderer to use for temporary string copies
 var buf: [4096]u8 = undefined;

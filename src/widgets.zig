@@ -1,5 +1,6 @@
 const std = @import("std");
 const ascii = std.ascii;
+const meta = std.meta;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -7,14 +8,13 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const Bytes = main.Bytes;
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
 pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Element.Config.Id) type {
     return struct {
-        data: Bytes,
+        data: std.ArrayListUnmanaged(u8),
         cursor: union(enum) {
             none,
             at: usize,
@@ -32,7 +32,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
 
         pub fn init() Model.Error!Self {
             var text_box = Self{
-                .data = try Bytes.initCapacity(main.alloc, 1024),
+                .data = try meta.FieldType(Self, .data).initCapacity(main.alloc, 1024),
                 .cursor = .none,
             };
             errdefer text_box.data.deinit(main.alloc);

@@ -13,8 +13,6 @@ const fs = std.fs;
 const clay = @import("clay");
 
 const main = @import("main.zig");
-const Bytes = main.Bytes;
-const Millis = main.Millis;
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
@@ -22,10 +20,12 @@ const Model = @import("Model.zig");
 
 data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
 data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
-names: Bytes,
+names: std.ArrayListUnmanaged(u8),
+sizes: std.ArrayListUnmanaged(std.BoundedArray(u8, 9)),
 sortings: std.EnumArray(Sorting, std.EnumArray(Kind, std.ArrayListUnmanaged(Index))),
 curr_sorting: Sorting,
 sort_type: enum { asc, desc },
+max_name_len: u16,
 
 const Entries = @This();
 
@@ -34,6 +34,54 @@ pub const Index = u16;
 pub const Kind = enum {
     dir,
     file,
+};
+
+const Timespan = union(enum) {
+    just_now,
+    past: struct { count: u7, metric: TimespanMetric },
+
+    fn fromNanos(nanos: i128) Timespan {
+        if (nanos < 0) return .just_now;
+        var metrics = mem.reverseIterator(enums.values(TimespanMetric));
+        while (metrics.next()) |metric| {
+            const count: u7 = @intCast(@min(@divFloor(nanos, metric.inNanos()), 99));
+            if (count > 0) {
+                return .{ .past = .{ .count = count, .metric = metric } };
+            }
+        }
+        return .just_now;
+    }
+};
+
+const TimespanMetric = enum {
+    seconds,
+    minutes,
+    hours,
+    days,
+    weeks,
+    years,
+
+    fn inNanos(metric: TimespanMetric) u64 {
+        return switch (metric) {
+            .seconds => time.ns_per_s,
+            .minutes => time.ns_per_min,
+            .hours => time.ns_per_hour,
+            .days => time.ns_per_day,
+            .weeks => time.ns_per_week,
+            .years => 365 * time.ns_per_day,
+        };
+    }
+
+    fn toString(metric: TimespanMetric, plural: bool) []const u8 {
+        switch (plural) {
+            inline true, false => |p| switch (metric) {
+                inline else => |m| {
+                    const metric_name = @tagName(m);
+                    return " " ++ (if (p) metric_name else metric_name[0 .. metric_name.len - 1]) ++ " ago";
+                },
+            },
+        }
+    }
 };
 
 const Sorting = enum {
@@ -46,9 +94,9 @@ const Sorting = enum {
 
 const Entry = struct {
     name: [2]u32,
-    selected: ?Millis, // TODO replace with more naive frame calculation?
-    created: ?Millis,
-    modified: Millis,
+    selected: ?i64, // TODO replace with more naive frame calculation?
+    created: ?Timespan,
+    modified: Timespan,
     size: u64,
     readonly: bool,
 };
@@ -106,7 +154,11 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
 }
 
 const entries_id = main.newId("Entries");
-const double_click_delay: Millis = 300;
+const double_click_delay = 300;
+const char_px_width = 10;
+const min_name_chars = 16;
+const max_name_chars = 32;
+const size_chars = 12;
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -118,25 +170,24 @@ fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) cl
     return main.newIdIndexed(kind_name[0..] ++ "Entry" ++ suffix, index);
 }
 
-fn nanosToMillis(nanos: i128) Millis {
-    return @intCast(@divFloor(nanos, time.ns_per_ms));
-}
-
 pub fn init() Model.Error!Entries {
     return .{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
         .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-        .names = try Bytes.initCapacity(main.alloc, 1024),
+        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, 1024),
+        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, 64),
         .sortings = meta.FieldType(Entries, .sortings)
             .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
         .curr_sorting = .name,
         .sort_type = .asc,
+        .max_name_len = 0,
     };
 }
 
 pub fn deinit(entries: *Entries) void {
     for (&entries.data.values) |*data| data.deinit(main.alloc);
     entries.names.deinit(main.alloc);
+    entries.sizes.deinit(main.alloc);
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
 }
 
@@ -184,7 +235,7 @@ pub fn render(entries: Entries) void {
             .rectangle = .{ .color = main.theme.base, .corner_radius = main.rounded },
         })({
             inline for (comptime kinds()) |kind| {
-                var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
+                var sorted_iter = entries.sorted(kind, &.{ .name, .selected, .created });
                 var sorted_index: Index = 0;
                 while (sorted_iter.next()) |entry| : (sorted_index += 1) {
                     const entry_id = getEntryId(kind, "", sorted_index);
@@ -235,9 +286,66 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Name", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
+                                .sizing = .{
+                                    .width = clay.Element.Sizing.Axis.fit(.{
+                                        .min = @max(@as(f32, @floatFromInt(entries.max_name_len)), min_name_chars) * char_px_width,
+                                        .max = max_name_chars * char_px_width,
+                                    }),
+                                },
                             },
                         })({
-                            main.text(entry.name);
+                            if (entry.name.len > max_name_chars) {
+                                main.text(entry.name[0 .. max_name_chars - "...".len]);
+                                main.text("...");
+                            } else {
+                                main.text(entry.name);
+                            }
+                        });
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "Size", sorted_index),
+                            .layout = .{
+                                .padding = clay.Padding.all(6),
+                                .sizing = .{
+                                    .width = clay.Element.Sizing.Axis.fit(.{
+                                        .min = size_chars * char_px_width,
+                                        .max = size_chars * char_px_width,
+                                    }),
+                                },
+                            },
+                        })({
+                            main.text(switch (kind) {
+                                .dir => "",
+                                .file => entries.sizes.items[entry.index].slice(),
+                            });
+                        });
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "Created", sorted_index),
+                            .layout = .{
+                                .padding = clay.Padding.all(6),
+                            },
+                        })({
+                            if (entry.created) |created| {
+                                switch (created) {
+                                    .just_now => main.text("Just now"),
+                                    .past => |timespan| {
+                                        const one_digits = "0123456789";
+                                        const two_digits =
+                                            "____________________10111213141516171819" ++
+                                            "2021222324252627282930313233343536373839" ++
+                                            "4041424344454647484950515253545556575859" ++
+                                            "6061626364656667686970717273747576777879" ++
+                                            "8081828384858687888990919293949596979899";
+                                        const count = if (timespan.count < 10)
+                                            one_digits[timespan.count..][0..1]
+                                        else
+                                            two_digits[timespan.count * 2 ..][0..2];
+                                        main.text(count);
+                                        main.text(timespan.metric.toString(timespan.count != 1));
+                                    },
+                                }
+                            }
                         });
                     });
                 }
@@ -253,7 +361,11 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
 
     for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
     entries.names.clearRetainingCapacity();
+    entries.sizes.clearRetainingCapacity();
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.clearRetainingCapacity();
+    entries.max_name_len = 0;
+
+    const now = time.nanoTimestamp();
 
     var iter = dir.iterate();
     while (iter.next() catch null) |entry| {
@@ -267,25 +379,41 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
         else
             (dir.openFile(entry.name, .{}) catch continue).metadata() catch continue;
 
+        var size = meta.Elem(@TypeOf(entries.sizes.items)){};
+        fmt.format(size.writer(), "{:.2}", .{fmt.fmtIntSizeBin(metadata.size())}) catch unreachable;
+        if (mem.indexOfScalar(u8, size.slice(), 'i')) |remove_i_at| _ = size.orderedRemove(remove_i_at);
+        var window_iter = mem.window(u8, size.slice(), 2, 1);
+        var insert_space_at: usize = 0;
+        while (window_iter.next()) |window| : (insert_space_at += 1) {
+            if (ascii.isDigit(window[0]) and ascii.isAlphabetic(window[1])) {
+                size.insert(insert_space_at + 1, ' ') catch unreachable;
+                break;
+            }
+        } else unreachable;
+        try entries.sizes.append(main.alloc, size);
+
         const data = entries.data.getPtr(if (is_dir) .dir else .file);
-        data.append(
+        try data.append(
             main.alloc,
             .{
                 .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
                 .selected = null,
-                .created = if (metadata.created()) |created| nanosToMillis(created) else null,
-                .modified = nanosToMillis(metadata.modified()),
+                .created = if (metadata.created()) |created| Timespan.fromNanos(now - created) else null,
+                .modified = Timespan.fromNanos(now - metadata.modified()),
                 .size = metadata.size(),
                 .readonly = metadata.permissions().readOnly(),
             },
-        ) catch break;
+        );
         if (data.len == math.maxInt(Index)) {
             alert.updateFmt("Reached the maximum entry limit", .{});
             break;
         }
+        const name_len: u16 = @intCast(entries.names.items.len - start_index);
+        entries.max_name_len = @max(name_len, entries.max_name_len);
     }
 
-    for (entries.data.values, &entries.data_slices.values) |data, *data_slice| data_slice.* = data.slice();
+    for (entries.data.values, &entries.data_slices.values) |data, *slice| slice.* = data.slice();
+
     try entries.sort(.name);
     entries.sort_type = .asc;
 }
@@ -320,22 +448,21 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
             for (0..len) |i| sort_list.appendAssumeCapacity(@intCast(i));
 
             const lessThanFn = struct {
+                fn getName(passed_entries: *const Entries, index: Index) []const u8 {
+                    const start, const end = passed_entries.data_slices.get(kind).items(.name)[index];
+                    return passed_entries.names.items[start..end];
+                }
+
                 fn cmp(passed_entries: *const Entries, lhs: Index, rhs: Index) bool {
                     switch (sorting) {
-                        .name => {
-                            const lhs_start, const lhs_end = passed_entries.data_slices.get(kind).items(.name)[lhs];
-                            const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
-                            const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
-                            const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                            return ascii.lessThanIgnoreCase(lhs_name, rhs_name);
-                        },
-                        .ext => {
-                            const lhs_start, const lhs_end = passed_entries.data_slices.get(kind).items(.name)[lhs];
-                            const rhs_start, const rhs_end = passed_entries.data_slices.get(kind).items(.name)[rhs];
-                            const lhs_name = passed_entries.names.items[lhs_start..lhs_end];
-                            const rhs_name = passed_entries.names.items[rhs_start..rhs_end];
-                            return ascii.lessThanIgnoreCase(fs.path.extension(lhs_name), fs.path.extension(rhs_name));
-                        },
+                        .name => return ascii.lessThanIgnoreCase(
+                            getName(passed_entries, lhs),
+                            getName(passed_entries, rhs),
+                        ),
+                        .ext => return ascii.lessThanIgnoreCase(
+                            fs.path.extension(getName(passed_entries, lhs)),
+                            fs.path.extension(getName(passed_entries, rhs)),
+                        ),
                         .created => {
                             const created = passed_entries.data_slices.get(kind).items(.created);
                             return created[lhs] < created[rhs];
@@ -346,7 +473,14 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
                         },
                         .size => {
                             const size = passed_entries.data_slices.get(kind).items(.size);
-                            return size[lhs] < size[rhs];
+                            return switch (math.order(size[lhs], size[rhs])) { // dirs will have 0 size, fallback to name
+                                .lt => true,
+                                .gt => false,
+                                .eq => ascii.lessThanIgnoreCase(
+                                    getName(passed_entries, lhs),
+                                    getName(passed_entries, rhs),
+                                ),
+                            };
                         },
                     }
                 }
