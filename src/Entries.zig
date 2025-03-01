@@ -151,16 +151,18 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
         sort_list: []const Index,
         slice: std.MultiArrayList(Entry).Slice,
         names: []const u8,
+        reverse: bool,
 
         pub fn next(self: *@This()) ?Item {
             if (self.sort_list.len == 0) return null;
+            const next_index = if (self.reverse) self.sort_list.len - 1 else 0;
             var item: Item = undefined;
             inline for (fields) |field| {
-                const value = self.slice.items(field)[self.sort_list[0]];
+                const value = self.slice.items(field)[self.sort_list[next_index]];
                 @field(item, @tagName(field)) = if (field == .name) self.names[value[0]..value[1]] else value;
             }
-            item.index = self.sort_list[0];
-            self.sort_list = self.sort_list[1..];
+            item.index = self.sort_list[next_index];
+            self.sort_list = if (self.reverse) self.sort_list[0 .. self.sort_list.len - 1] else self.sort_list[1..];
             return item;
         }
     };
@@ -506,18 +508,20 @@ pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
         else
             (dir.openFile(entry.name, .{}) catch continue).metadata() catch continue;
 
-        var size = meta.Elem(@TypeOf(entries.sizes.items)){};
-        fmt.format(size.writer(), "{:.2}", .{fmt.fmtIntSizeBin(metadata.size())}) catch unreachable;
-        if (mem.indexOfScalar(u8, size.slice(), 'i')) |remove_i_at| _ = size.orderedRemove(remove_i_at);
-        var window_iter = mem.window(u8, size.slice(), 2, 1);
-        var insert_space_at: usize = 0;
-        while (window_iter.next()) |window| : (insert_space_at += 1) {
-            if (ascii.isDigit(window[0]) and ascii.isAlphabetic(window[1])) {
-                size.insert(insert_space_at + 1, ' ') catch unreachable;
-                break;
-            }
-        } else unreachable;
-        try entries.sizes.append(main.alloc, size);
+        if (!is_dir) {
+            var size = meta.Elem(@TypeOf(entries.sizes.items)){};
+            fmt.format(size.writer(), "{:.2}", .{fmt.fmtIntSizeBin(metadata.size())}) catch unreachable;
+            if (mem.indexOfScalar(u8, size.slice(), 'i')) |remove_i_at| _ = size.orderedRemove(remove_i_at);
+            var window_iter = mem.window(u8, size.slice(), 2, 1);
+            var insert_space_at: usize = 0;
+            while (window_iter.next()) |window| : (insert_space_at += 1) {
+                if (ascii.isDigit(window[0]) and ascii.isAlphabetic(window[1])) {
+                    size.insert(insert_space_at + 1, ' ') catch unreachable;
+                    break;
+                }
+            } else unreachable;
+            try entries.sizes.append(main.alloc, size);
+        }
 
         const data = entries.data.getPtr(if (is_dir) .dir else .file);
         try data.append(
@@ -552,6 +556,7 @@ pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta
         .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
         .slice = entries.data_slices.get(kind),
         .names = entries.names.items,
+        .reverse = entries.sort_type == .desc,
     };
 }
 
