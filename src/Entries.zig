@@ -42,8 +42,8 @@ const Timespan = union(enum) {
 
     fn fromNanos(nanos: i128) Timespan {
         if (nanos < 0) return .just_now;
-        var metrics = mem.reverseIterator(enums.values(TimespanMetric));
-        while (metrics.next()) |metric| {
+        comptime var metrics = mem.reverseIterator(enums.values(TimespanMetric));
+        inline while (comptime metrics.next()) |metric| {
             const count: u7 = @intCast(@min(@divFloor(nanos, metric.inNanos()), 99));
             if (count > 0) {
                 return .{ .past = .{ .count = count, .metric = metric } };
@@ -158,7 +158,8 @@ const double_click_delay = 300;
 const char_px_width = 10;
 const min_name_chars = 16;
 const max_name_chars = 32;
-const size_chars = 12;
+const size_chars = 20;
+const timespan_chars = 20;
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -168,6 +169,17 @@ fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) cl
     comptime var kind_name = @tagName(kind).*;
     kind_name[0] = comptime ascii.toUpper(kind_name[0]);
     return main.newIdIndexed(kind_name[0..] ++ "Entry" ++ suffix, index);
+}
+
+fn twoDigitString(n: u7) []const u8 {
+    const one_digits = "0123456789";
+    const two_digits =
+        "____________________10111213141516171819" ++
+        "2021222324252627282930313233343536373839" ++
+        "4041424344454647484950515253545556575859" ++
+        "6061626364656667686970717273747576777879" ++
+        "8081828384858687888990919293949596979899";
+    return if (n < 10) one_digits[n..][0..1] else two_digits[n * 2 ..][0..2];
 }
 
 pub fn init() Model.Error!Entries {
@@ -235,7 +247,12 @@ pub fn render(entries: Entries) void {
             .rectangle = .{ .color = main.theme.base, .corner_radius = main.rounded },
         })({
             inline for (comptime kinds()) |kind| {
-                var sorted_iter = entries.sorted(kind, &.{ .name, .selected, .created });
+                var sorted_iter = entries.sorted(kind, &.{
+                    .name,
+                    .selected,
+                    .created,
+                    .modified,
+                });
                 var sorted_index: Index = 0;
                 while (sorted_iter.next()) |entry| : (sorted_index += 1) {
                     const entry_id = getEntryId(kind, "", sorted_index);
@@ -297,9 +314,7 @@ pub fn render(entries: Entries) void {
                             if (entry.name.len > max_name_chars) {
                                 main.text(entry.name[0 .. max_name_chars - "...".len]);
                                 main.text("...");
-                            } else {
-                                main.text(entry.name);
-                            }
+                            } else main.text(entry.name);
                         });
 
                         clay.ui()(.{
@@ -324,27 +339,43 @@ pub fn render(entries: Entries) void {
                             .id = getEntryId(kind, "Created", sorted_index),
                             .layout = .{
                                 .padding = clay.Padding.all(6),
+                                .sizing = .{
+                                    .width = clay.Element.Sizing.Axis.fit(.{
+                                        .min = timespan_chars * char_px_width,
+                                        .max = timespan_chars * char_px_width,
+                                    }),
+                                },
                             },
                         })({
                             if (entry.created) |created| {
                                 switch (created) {
                                     .just_now => main.text("Just now"),
                                     .past => |timespan| {
-                                        const one_digits = "0123456789";
-                                        const two_digits =
-                                            "____________________10111213141516171819" ++
-                                            "2021222324252627282930313233343536373839" ++
-                                            "4041424344454647484950515253545556575859" ++
-                                            "6061626364656667686970717273747576777879" ++
-                                            "8081828384858687888990919293949596979899";
-                                        const count = if (timespan.count < 10)
-                                            one_digits[timespan.count..][0..1]
-                                        else
-                                            two_digits[timespan.count * 2 ..][0..2];
-                                        main.text(count);
+                                        main.text(twoDigitString(timespan.count));
                                         main.text(timespan.metric.toString(timespan.count != 1));
                                     },
                                 }
+                            } else main.text("");
+                        });
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "Modified", sorted_index),
+                            .layout = .{
+                                .padding = clay.Padding.all(6),
+                                .sizing = .{
+                                    .width = clay.Element.Sizing.Axis.fit(.{
+                                        .min = timespan_chars * char_px_width,
+                                        .max = timespan_chars * char_px_width,
+                                    }),
+                                },
+                            },
+                        })({
+                            switch (entry.modified) {
+                                .just_now => main.text("Just now"),
+                                .past => |timespan| {
+                                    main.text(twoDigitString(timespan.count));
+                                    main.text(timespan.metric.toString(timespan.count != 1));
+                                },
                             }
                         });
                     });
