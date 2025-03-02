@@ -73,7 +73,7 @@ pub fn init() Error!Model {
     };
     errdefer model.deinit();
 
-    try model.entries.load_entries(model.cwd.value());
+    try model.entries.loadEntries(model.cwd.value());
 
     return model;
 }
@@ -87,27 +87,27 @@ pub fn update(model: *Model, input: Input) Error!void {
     if (main.debug and input.clicked(.middle)) {
         log.debug("{}\n", .{model});
     } else if (input.clicked(.side)) {
-        try model.open_parent_dir();
+        try model.openParentDir();
     } else if (input.clicked(.left)) {
         inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
             if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                 switch (button) {
-                    .parent => try model.open_parent_dir(),
-                    .refresh => try model.entries.load_entries(model.cwd.value()),
-                    .vscode => try model.open_vscode(),
+                    .parent => try model.openParentDir(),
+                    .refresh => try model.entries.loadEntries(model.cwd.value()),
+                    .vscode => try model.openVscode(),
                 }
             }
         }
     }
     if (try model.cwd.update(input)) |message| {
         switch (message) {
-            .submit => |path| try model.entries.load_entries(path),
+            .submit => |path| try model.entries.loadEntries(path),
         }
     }
     if (try model.entries.update(input)) |message| {
         switch (message) {
-            .open_dir => |name| try model.open_dir(name),
-            .open_file => |name| try model.open_file(name),
+            .open_dir => |name| try model.openDir(name),
+            .open_file => |name| try model.openFile(name),
         }
     }
 }
@@ -175,10 +175,10 @@ pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer
     try fmt.format(writer, "\ncwd: {s}\nentries: {}", .{ model.cwd.value(), model.entries });
 }
 
-fn open_dir(model: *Model, name: []const u8) Error!void {
+fn openDir(model: *Model, name: []const u8) Error!void {
     try model.cwd.appendPath(name);
 
-    model.entries.load_entries(model.cwd.value()) catch |err| switch (err) {
+    model.entries.loadEntries(model.cwd.value()) catch |err| switch (err) {
         Error.DirAccessDenied, Error.OpenDirFailure => {
             model.cwd.popPath();
             return err;
@@ -187,12 +187,12 @@ fn open_dir(model: *Model, name: []const u8) Error!void {
     };
 }
 
-fn open_parent_dir(model: *Model) Error!void {
+fn openParentDir(model: *Model) Error!void {
     model.cwd.popPath();
-    try model.entries.load_entries(model.cwd.value());
+    try model.entries.loadEntries(model.cwd.value());
 }
 
-fn open_file(model: Model, name: []const u8) Error!void {
+fn openFile(model: Model, name: []const u8) Error!void {
     if (main.windows) {
         const path = try fs.path.joinZ(main.alloc, &.{ model.cwd.value(), name });
         defer main.alloc.free(path);
@@ -219,7 +219,7 @@ fn open_file(model: Model, name: []const u8) Error!void {
     }
 }
 
-fn open_vscode(model: Model) Error!void {
+fn openVscode(model: Model) Error!void {
     if (main.windows) {
         const path = try main.alloc.dupeZ(u8, model.cwd.value());
         defer main.alloc.free(path);

@@ -17,6 +17,7 @@ const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const Font = resources.Font;
 const alert = @import("alert.zig");
+const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -58,6 +59,7 @@ pub const theme = .{
     .hovered = rgb(43, 43, 58),
     .selected = rgb(59, 59, 71),
     .mantle = rgb(24, 24, 37),
+    .pitch_black = rgb(17, 17, 27),
 };
 
 const title_color =
@@ -203,6 +205,7 @@ fn frame(model: *Model) void {
 
     model.render();
     alert.render();
+    tooltip.render();
 }
 
 test "ids" {

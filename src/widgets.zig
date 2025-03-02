@@ -1,6 +1,7 @@
 const std = @import("std");
 const ascii = std.ascii;
 const meta = std.meta;
+const time = std.time;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -14,7 +15,7 @@ const Model = @import("Model.zig");
 
 pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Element.Config.Id) type {
     return struct {
-        data: std.ArrayListUnmanaged(u8),
+        content: std.ArrayListUnmanaged(u8),
         cursor: union(enum) {
             none,
             at: usize,
@@ -32,22 +33,22 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
 
         pub fn init() Model.Error!Self {
             var text_box = Self{
-                .data = try meta.FieldType(Self, .data).initCapacity(main.alloc, 1024),
+                .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 1024),
                 .cursor = .none,
             };
-            errdefer text_box.data.deinit(main.alloc);
+            errdefer text_box.content.deinit(main.alloc);
 
             if (kind == .path) {
                 const path = fs.realpathAlloc(main.alloc, ".") catch return Model.Error.OutOfMemory;
                 defer main.alloc.free(path);
-                try text_box.data.appendSlice(main.alloc, path);
+                try text_box.content.appendSlice(main.alloc, path);
             }
 
             return text_box;
         }
 
         pub fn deinit(self: *Self) void {
-            self.data.deinit(main.alloc);
+            self.content.deinit(main.alloc);
         }
 
         pub fn update(self: *Self, input: Input) Model.Error!?Message {
@@ -67,8 +68,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                     if (input.ctrl) {
                                         switch (char) {
                                             'c' => {
-                                                try self.data.append(main.alloc, 0);
-                                                defer _ = self.data.pop();
+                                                try self.content.append(main.alloc, 0);
+                                                defer _ = self.content.pop();
                                                 rl.setClipboardText(@ptrCast(self.value()));
                                             },
                                             'v' => {
@@ -77,13 +78,13 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                                     alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
                                                     return null;
                                                 }
-                                                try self.data.insertSlice(main.alloc, index, clipboard);
+                                                try self.content.insertSlice(main.alloc, index, clipboard);
                                                 self.cursor.at += clipboard.len;
                                             },
                                             else => {},
                                         }
                                     } else {
-                                        try self.data.insert(main.alloc, index, char);
+                                        try self.content.insert(main.alloc, index, char);
                                         self.cursor.at += 1;
                                     }
                                 },
@@ -146,10 +147,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 switch (self.cursor) {
                     .none => {
                         // TODO special rendering for paths?
-                        main.textEx(.roboto_mono, .sm, self.data.items, main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.content.items, main.theme.text);
                     },
                     .at => |index| {
-                        main.textEx(.roboto_mono, .sm, self.data.items[0..index], main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.content.items[0..index], main.theme.text);
                         clay.ui()(.{
                             .floating = .{
                                 .offset = .{ .x = @floatFromInt(index * 9), .y = -2 },
@@ -158,39 +159,39 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         })({
                             main.textEx(.roboto_mono, .md, "|", main.theme.bright_text);
                         });
-                        main.textEx(.roboto_mono, .sm, self.data.items[index..], main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.content.items[index..], main.theme.text);
                     },
                     .select => |selection| {
-                        main.textEx(.roboto_mono, .sm, self.data.items[0..selection.from], main.theme.text);
-                        main.textEx(.roboto_mono, .sm, self.data.items[selection.from..selection.to], main.theme.sapphire);
-                        main.textEx(.roboto_mono, .sm, self.data.items[selection.to..], main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.content.items[0..selection.from], main.theme.text);
+                        main.textEx(.roboto_mono, .sm, self.content.items[selection.from..selection.to], main.theme.sapphire);
+                        main.textEx(.roboto_mono, .sm, self.content.items[selection.to..], main.theme.text);
                     },
                 }
             });
         }
 
         pub fn value(self: Self) []const u8 {
-            return self.data.items;
+            return self.content.items;
         }
 
         pub fn popPath(self: *Self) void {
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
-            self.data.shrinkRetainingCapacity(parent_dir_path.len);
+            self.content.shrinkRetainingCapacity(parent_dir_path.len);
         }
 
         pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
             if (kind != .path) @compileError("appendPath only works on paths");
-            try self.data.append(main.alloc, fs.path.sep);
-            return self.data.appendSlice(main.alloc, entry_name);
+            try self.content.append(main.alloc, fs.path.sep);
+            return self.content.appendSlice(main.alloc, entry_name);
         }
 
         fn removeCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| _ = self.data.orderedRemove(index),
+                .at => |index| _ = self.content.orderedRemove(index),
                 .select => |selection| {
-                    self.data.replaceRangeAssumeCapacity(selection.from, selection.to - selection.from, "");
+                    self.content.replaceRangeAssumeCapacity(selection.from, selection.to - selection.from, "");
                     self.cursor = .{ .at = selection.from };
                 },
             }
@@ -199,7 +200,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursorToNextSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| self.data.replaceRangeAssumeCapacity(index, toNextSep(self.value(), index) - index, ""),
+                .at => |index| self.content.replaceRangeAssumeCapacity(index, toNextSep(self.value(), index) - index, ""),
                 .select => self.removeCursor(),
             }
         }
@@ -209,7 +210,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 .none => {},
                 .at => |index| {
                     const prev = toPrevSep(self.value(), index);
-                    self.data.replaceRangeAssumeCapacity(prev, index - prev, "");
+                    self.content.replaceRangeAssumeCapacity(prev, index - prev, "");
                     self.cursor.at = prev;
                 },
                 .select => self.removeCursor(),

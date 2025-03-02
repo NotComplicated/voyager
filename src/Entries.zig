@@ -12,10 +12,12 @@ const fs = std.fs;
 
 const clay = @import("clay");
 const rl = @import("raylib");
+const Datetime = @import("datetime").datetime.Datetime;
 
 const main = @import("main.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
+const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -219,6 +221,19 @@ fn nanosToMillis(nanos: i128) u64 {
     return math.lossyCast(u64, @divTrunc(nanos, time.ns_per_ms));
 }
 
+fn printDate(millis: u64, writer: anytype) Model.Error!void {
+    const created = Datetime.fromTimestamp(math.lossyCast(i64, millis));
+    writer.print("{s}, {s} {} {} at {}:{:0>2} {s}", .{
+        created.date.weekdayName(),
+        created.date.monthName(),
+        created.date.day,
+        created.date.year,
+        created.time.hour,
+        created.time.minute,
+        created.time.amOrPm(),
+    }) catch return Model.Error.OutOfMemory;
+}
+
 pub fn init() Model.Error!Entries {
     return .{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
@@ -270,6 +285,30 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                 .char => |char| entries.jump(char),
                 else => {},
             },
+        }
+    } else {
+        if (tooltip.update(input.mouse_pos)) |writer| {
+            inline for (comptime kinds()) |kind| {
+                var sorted_iter = entries.sorted(kind, &.{});
+                var sorted_index: Index = 0;
+                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                    if (clay.pointerOver(getEntryId(kind, "Name", sorted_index))) {
+                        const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
+                        if (end - start > max_name_chars) {
+                            writer.writeAll(entries.names.items[start..end]) catch return Model.Error.OutOfMemory;
+                        }
+                    } else if (clay.pointerOver(getEntryId(kind, "Size", sorted_index))) {
+                        const size = entries.data_slices.get(kind).items(.size)[entry.index];
+                        if (size > 1000) writer.print("{} bytes", .{size}) catch return Model.Error.OutOfMemory;
+                    } else if (clay.pointerOver(getEntryId(kind, "Created", sorted_index))) {
+                        if (entries.data_slices.get(kind).items(.created_millis)[entry.index]) |created_millis| {
+                            try printDate(created_millis, writer);
+                        }
+                    } else if (clay.pointerOver(getEntryId(kind, "Modified", sorted_index))) {
+                        try printDate(entries.data_slices.get(kind).items(.modified_millis)[entry.index], writer);
+                    }
+                }
+            }
         }
     }
     return null;
@@ -483,7 +522,7 @@ pub fn render(entries: Entries) void {
     });
 }
 
-pub fn load_entries(entries: *Entries, path: []const u8) Model.Error!void {
+pub fn loadEntries(entries: *Entries, path: []const u8) Model.Error!void {
     if (!fs.path.isAbsolute(path)) return Model.Error.OpenDirFailure;
     const dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
         return if (err == error.AccessDenied) Model.Error.DirAccessDenied else Model.Error.OpenDirFailure;

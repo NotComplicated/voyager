@@ -13,6 +13,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .raylib_renderer = true,
     });
+    const datetime = b.dependency("zig-datetime", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const exe = b.addExecutable(.{
         .name = name,
         .root_source_file = root,
@@ -25,11 +30,12 @@ pub fn build(b: *std.Build) !void {
         exe.subsystem = if (console) .Console else .Windows;
     }
 
-    exe.root_module.addImport("raylib", clay.module("raylib"));
     exe.root_module.addImport("clay", clay.module("clay"));
+    exe.root_module.addImport("raylib", clay.module("raylib"));
     for (raylib_config) |config| {
         clay.artifact("raylib").root_module.addCMacro(config.@"0", config.@"1");
     }
+    exe.root_module.addImport("datetime", datetime.module("zig-datetime"));
 
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run " ++ name);
