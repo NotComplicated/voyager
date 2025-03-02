@@ -16,6 +16,7 @@ const Datetime = @import("datetime").datetime.Datetime;
 
 const main = @import("main.zig");
 const resources = @import("resources.zig");
+const extensions = @import("extensions.zig").extensions;
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
@@ -175,22 +176,18 @@ const double_click_delay = 300;
 const char_px_width = 10;
 const min_name_chars = 16;
 const max_name_chars = 32;
-const size_chars = 20;
-const timespan_chars = 20;
 
-const size_sizing = clay.Element.Sizing{
-    .width = clay.Element.Sizing.Axis.fit(.{
-        .min = size_chars * char_px_width,
-        .max = size_chars * char_px_width,
-    }),
-};
-
-const timespan_sizing = clay.Element.Sizing{
-    .width = clay.Element.Sizing.Axis.fit(.{
-        .min = timespan_chars * char_px_width,
-        .max = timespan_chars * char_px_width,
-    }),
-};
+fn getSizing(chars: comptime_int) clay.Element.Sizing {
+    return .{
+        .width = clay.Element.Sizing.Axis.fit(.{
+            .min = chars * char_px_width,
+            .max = chars * char_px_width,
+        }),
+    };
+}
+const type_sizing = getSizing(24);
+const size_sizing = getSizing(16);
+const timespan_sizing = getSizing(20);
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -232,6 +229,17 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
         created.time.minute,
         created.time.amOrPm(),
     }) catch return Model.Error.OutOfMemory;
+}
+
+fn getFileType(name: []const u8) []const u8 {
+    const FileTypes = struct {
+        var map = std.StaticStringMapWithEql(
+            []const u8,
+            std.static_string_map.eqlAsciiIgnoreCase,
+        ).initComptime(extensions);
+    };
+    const extension = fs.path.extension(name);
+    return if (extension.len > 0) FileTypes.map.get(extension[1..]) orelse "" else "";
 }
 
 pub fn init() Model.Error!Entries {
@@ -296,6 +304,14 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                         const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
                         if (end - start > max_name_chars) {
                             writer.writeAll(entries.names.items[start..end]) catch return Model.Error.OutOfMemory;
+                        }
+                    } else if (clay.pointerOver(getEntryId(kind, "Type", sorted_index))) {
+                        if (kind == .file) {
+                            const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
+                            const file_type = getFileType(entries.names.items[start..end]);
+                            if (file_type.len > 24) {
+                                writer.writeAll(file_type) catch return Model.Error.OutOfMemory;
+                            }
                         }
                     } else if (clay.pointerOver(getEntryId(kind, "Size", sorted_index))) {
                         const size = entries.data_slices.get(kind).items(.size)[entry.index];
@@ -387,6 +403,7 @@ pub fn render(entries: Entries) void {
                 }
             }.f;
             column(entries, .name, name_sizing);
+            column(entries, .ext, type_sizing);
             column(entries, .size, size_sizing);
             column(entries, .created, timespan_sizing);
             column(entries, .modified, timespan_sizing);
@@ -467,6 +484,20 @@ pub fn render(entries: Entries) void {
                                 main.text(entry.name[0 .. max_name_chars - "...".len]);
                                 main.text("...");
                             } else main.text(entry.name);
+                        });
+
+                        clay.ui()(.{
+                            .id = getEntryId(kind, "Type", sorted_index),
+                            .layout = .{
+                                .padding = clay.Padding.all(6),
+                                .sizing = type_sizing,
+                            },
+                        })({
+                            const file_type = if (kind == .dir) "" else getFileType(entry.name);
+                            if (file_type.len > 24) {
+                                main.text(file_type[0 .. file_type.len - 3]);
+                                main.text("...");
+                            } else main.text(file_type);
                         });
 
                         clay.ui()(.{
@@ -632,10 +663,16 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
                             getName(passed_entries, lhs),
                             getName(passed_entries, rhs),
                         ),
-                        .ext => return ascii.lessThanIgnoreCase(
-                            fs.path.extension(getName(passed_entries, lhs)),
-                            fs.path.extension(getName(passed_entries, rhs)),
-                        ),
+                        .ext => return if (kind == .dir)
+                            ascii.lessThanIgnoreCase(
+                                getName(passed_entries, lhs),
+                                getName(passed_entries, rhs),
+                            )
+                        else
+                            ascii.lessThanIgnoreCase(
+                                fs.path.extension(getName(passed_entries, lhs)),
+                                fs.path.extension(getName(passed_entries, rhs)),
+                            ),
                         .created => {
                             const created = passed_entries.data_slices.get(kind).items(.created_millis);
                             return created[lhs] orelse 0 < created[rhs] orelse 0;
