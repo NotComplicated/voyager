@@ -9,6 +9,7 @@ const time = std.time;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
+const os = std.os;
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -16,7 +17,7 @@ const Datetime = @import("datetime").datetime.Datetime;
 
 const main = @import("main.zig");
 const resources = @import("resources.zig");
-const extensions = @import("extensions.zig").extensions;
+const extensions = @import("extensions.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
@@ -185,9 +186,30 @@ fn getSizing(chars: comptime_int) clay.Element.Sizing {
         }),
     };
 }
-const type_sizing = getSizing(24);
+const type_sizing = getSizing(8);
 const size_sizing = getSizing(16);
 const timespan_sizing = getSizing(20);
+
+const SYSTEMTIME = extern struct {
+    wYear: os.windows.WORD,
+    wMonth: os.windows.WORD,
+    wDayOfWeek: os.windows.WORD,
+    wDay: os.windows.WORD,
+    wHour: os.windows.WORD,
+    wMinute: os.windows.WORD,
+    wSecond: os.windows.WORD,
+    wMilliseconds: os.windows.WORD,
+};
+const TIME_ZONE_INFORMATION = extern struct {
+    Bias: os.windows.LONG,
+    StandardName: [32]os.windows.WCHAR,
+    StandardDate: SYSTEMTIME,
+    StandardBias: os.windows.LONG,
+    DaylightName: [32]os.windows.WCHAR,
+    DaylightDate: SYSTEMTIME,
+    DaylightBias: os.windows.LONG,
+};
+extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) std.os.windows.DWORD;
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -219,15 +241,36 @@ fn nanosToMillis(nanos: i128) u64 {
 }
 
 fn printDate(millis: u64, writer: anytype) Model.Error!void {
-    const created = Datetime.fromTimestamp(math.lossyCast(i64, millis));
+    const GetTimezone = struct {
+        var bias: ?i32 = null;
+
+        fn getTimezone() void {
+            if (main.windows) {
+                var timezone_info = mem.zeroes(TIME_ZONE_INFORMATION);
+                switch (GetTimeZoneInformation(&timezone_info)) {
+                    0, 1, 2 => bias = timezone_info.Bias,
+                    else => alert.updateFmt("Failed to get timezone.", .{}),
+                }
+            }
+        }
+    };
+    var once = std.once(GetTimezone.getTimezone);
+    once.call();
+    const datetime = Datetime.fromTimestamp(math.lossyCast(i64, millis)).shiftMinutes(-(GetTimezone.bias orelse 0));
+    const hour = switch (datetime.time.hour) {
+        0 => 12,
+        1...12 => datetime.time.hour,
+        13...24 => datetime.time.hour - 12,
+        else => unreachable,
+    };
     writer.print("{s}, {s} {} {} at {}:{:0>2} {s}", .{
-        created.date.weekdayName(),
-        created.date.monthName(),
-        created.date.day,
-        created.date.year,
-        created.time.hour,
-        created.time.minute,
-        created.time.amOrPm(),
+        datetime.date.weekdayName(),
+        datetime.date.monthName(),
+        datetime.date.day,
+        datetime.date.year,
+        hour,
+        datetime.time.minute,
+        datetime.time.amOrPm(),
     }) catch return Model.Error.OutOfMemory;
 }
 
@@ -236,7 +279,7 @@ fn getFileType(name: []const u8) []const u8 {
         var map = std.StaticStringMapWithEql(
             []const u8,
             std.static_string_map.eqlAsciiIgnoreCase,
-        ).initComptime(extensions);
+        ).initComptime(extensions.data);
     };
     const extension = fs.path.extension(name);
     return if (extension.len > 0) FileTypes.map.get(extension[1..]) orelse "" else "";
@@ -308,10 +351,7 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                     } else if (clay.pointerOver(getEntryId(kind, "Type", sorted_index))) {
                         if (kind == .file) {
                             const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
-                            const file_type = getFileType(entries.names.items[start..end]);
-                            if (file_type.len > 24) {
-                                writer.writeAll(file_type) catch return Model.Error.OutOfMemory;
-                            }
+                            writer.writeAll(getFileType(entries.names.items[start..end])) catch return Model.Error.OutOfMemory;
                         }
                     } else if (clay.pointerOver(getEntryId(kind, "Size", sorted_index))) {
                         const size = entries.data_slices.get(kind).items(.size)[entry.index];
@@ -493,11 +533,8 @@ pub fn render(entries: Entries) void {
                                 .sizing = type_sizing,
                             },
                         })({
-                            const file_type = if (kind == .dir) "" else getFileType(entry.name);
-                            if (file_type.len > 24) {
-                                main.text(file_type[0 .. file_type.len - 3]);
-                                main.text("...");
-                            } else main.text(file_type);
+                            const extension = fs.path.extension(entry.name);
+                            main.text(if (extension.len > 0) extension[1..] else "");
                         });
 
                         clay.ui()(.{

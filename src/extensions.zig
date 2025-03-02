@@ -1,4 +1,4 @@
-pub const extensions = .{
+pub const data = .{
     .{
         "3DS",
         "Cartridge game format for Nintendo 3DS",
