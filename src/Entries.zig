@@ -186,7 +186,7 @@ fn getSizing(chars: comptime_int) clay.Element.Sizing {
         }),
     };
 }
-const type_sizing = getSizing(8);
+const type_sizing = getSizing(12);
 const size_sizing = getSizing(16);
 const timespan_sizing = getSizing(20);
 
@@ -411,7 +411,7 @@ pub fn render(entries: Entries) void {
                         .layout = .{
                             .padding = clay.Padding.xy(10, 6),
                             .sizing = sizing,
-                            .child_gap = 24,
+                            .child_gap = 6,
                         },
                         .rectangle = .{
                             .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.mantle,
@@ -420,12 +420,12 @@ pub fn render(entries: Entries) void {
                     })({
                         main.pointer();
                         main.text(title);
-                        clay.ui()(.{
-                            .id = getColumnId(title, "Pad"),
-                            .layout = .{
-                                .sizing = .{ .width = .{ .type = .grow } },
-                            },
-                        })({});
+                        // clay.ui()(.{
+                        //     .id = getColumnId(title, "Pad"),
+                        //     .layout = .{
+                        //         .sizing = .{ .width = .{ .type = .grow } },
+                        //     },
+                        // })({});
                         clay.ui()(.{
                             .id = getColumnId(title, "Sort"),
                             .layout = .{
@@ -442,6 +442,7 @@ pub fn render(entries: Entries) void {
                     });
                 }
             }.f;
+
             column(entries, .name, name_sizing);
             column(entries, .ext, type_sizing);
             column(entries, .size, size_sizing);
@@ -534,7 +535,7 @@ pub fn render(entries: Entries) void {
                             },
                         })({
                             const extension = fs.path.extension(entry.name);
-                            main.text(if (extension.len > 0) extension[1..] else "");
+                            main.text(if (kind == .dir) "" else if (extension.len > 0) extension[1..] else "");
                         });
 
                         clay.ui()(.{

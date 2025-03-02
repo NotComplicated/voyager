@@ -25,7 +25,7 @@ pub const data = .{
     },
     .{
         "7z",
-        "A compressed archive file format that supports several different data compression, encryption and pre-processing algorithms",
+        "Compressed archive file format",
     },
     .{
         "4TH",
@@ -49,11 +49,7 @@ pub const data = .{
     },
     .{
         "ACO",
-        "Adobe color palette format (.aco)",
-    },
-    .{
-        "ADT",
-        "Abrechnungsdatentransfer, an xDT application",
+        "Adobe color palette format",
     },
     .{
         "ADX",
@@ -61,11 +57,7 @@ pub const data = .{
     },
     .{
         "ADZ",
-        "Amiga Disk Zipped (See Amiga Disk File)",
-    },
-    .{
-        "AGDA",
-        "Agda (programming language) source file",
+        "Amiga Disk Zipped",
     },
     .{
         "AGR",
@@ -169,7 +161,7 @@ pub const data = .{
     },
     .{
         "ASX",
-        "Advanced Stream Redirector file, redirects to an ASF file (see ASF)",
+        "Advanced Stream Redirector file",
     },
     .{
         "ATG",
@@ -213,11 +205,7 @@ pub const data = .{
     },
     .{
         "BAK",
-        "backup",
-    },
-    .{
-        "BAR",
-        "Broker Archive. Compressed file containing number of other files for deployment.",
+        "Backup",
     },
     .{
         "BAS",
@@ -229,7 +217,7 @@ pub const data = .{
     },
     .{
         "BDF",
-        "Glyph Bitmap Distribution Format, a format used to store bitmap fonts.",
+        "Glyph Bitmap Distribution Format",
     },
     .{
         "BDT",
@@ -313,7 +301,7 @@ pub const data = .{
     },
     .{
         "CBT",
-        "COMBOOT Executable (incompatible with DOS COM files)",
+        "COMBOOT Executable",
     },
     .{
         "CC",
@@ -334,10 +322,6 @@ pub const data = .{
     .{
         "CDR",
         "Vector graphics format (drawinF",
-    },
-    .{
-        "CDXML",
-        "MIME type, chemical/x-cdxmlXML version of the ChemDraw Exchange format, CDX.",
     },
     .{
         "CER",
@@ -381,7 +365,7 @@ pub const data = .{
     },
     .{
         "CML",
-        "Chemical Markup Language, for interchange of chemical information.",
+        "Chemical Markup Language",
     },
     .{
         "CMOD",
@@ -390,10 +374,6 @@ pub const data = .{
     .{
         "CN1",
         "CNR IDL",
-    },
-    .{
-        "CNOFF",
-        "3D object file format with normals (.noff, .cnoff) NOFF is an acronym derived from Object File Format. Occasionally called CNOFF if color information is present.",
     },
     .{
         "COB",
@@ -405,11 +385,11 @@ pub const data = .{
     },
     .{
         "COFF",
-        "3D object file format (.off, .coff) OFF is an acronym for Object File Format. Used for storing and exchanging 3D models. Occasionally called COFF if color information is present.",
+        "Object File Format",
     },
     .{
         "COL",
-        "DIMACS graph data format.",
+        "DIMACS graph data format",
     },
     .{
         "COM",
@@ -469,15 +449,11 @@ pub const data = .{
     },
     .{
         "CSO",
-        "Compiled Shader Object, extension of compiled HLSL",
+        "Compiled Shader Object",
     },
     .{
         "CSV",
-        "Comma Separated Values text file format (ASCII)",
-    },
-    .{
-        "CUB",
-        "Used by electronic structure programs to store orbital or density values on a three-dimensional grid.",
+        "Comma Separated Values text file format",
     },
     .{
         "CUBE",
@@ -485,7 +461,7 @@ pub const data = .{
     },
     .{
         "CUR",
-        "Non-animated cursor (extended from ICO)",
+        "Non-animated cursor",
     },
     .{
         "D",
@@ -505,43 +481,11 @@ pub const data = .{
     },
     .{
         "DART",
-        "Dart (programming language) source file",
+        "Dart source file",
     },
     .{
         "DAT",
-        "AMPL data file",
-    },
-    .{
-        "DAT",
-        "LDraw (Sub)Part File, 3D Model",
-    },
-    .{
-        "DAT",
-        "Data",
-    },
-    .{
-        "DAT",
-        "Data file in special format or ASCII",
-    },
-    .{
-        "DAT",
-        "Database file",
-    },
-    .{
-        "DAT",
-        "Norton Utilities disc image data. It saves Boot sector, part of FAT and root directory in image.DAT on same drive.",
-    },
-    .{
-        "DAT",
-        "Optical disc image (can be ISO9660, but not restricted to)",
-    },
-    .{
-        "DAT",
-        "Video CD MPEG stream",
-    },
-    .{
-        "DAT",
-        "Windows registry hive (REG.DAT Windows 3.11; USER.DAT and SYSTEM.DAT Windows 95, 98, and ME; NTUSER.DAT Windows NT/2000/XP/7)",
+        "Data file",
     },
     .{
         "DATS",
@@ -560,10 +504,6 @@ pub const data = .{
         "Database Connection configuration file",
     },
     .{
-        "DBF",
-        "Native format of the dBASE database management application.",
-    },
-    .{
         "DBG",
         "Debugger script",
     },
@@ -572,16 +512,8 @@ pub const data = .{
         "deb software package",
     },
     .{
-        "DEM",
-        "digital elevation model (DEM) including GTOPO30 and USGSDEM. GTOPO30 is a distribution format for a global digital elevation model (DEM) with 30-arc-second grid spacing. USGSDEM is the standard format for the distribution of terrain elevation data for the United States.",
-    },
-    .{
         "DGN",
         "CAD Drawing",
-    },
-    .{
-        "DICOM",
-        "Digital Imaging and Communications in Medicine (DICOM) bitmap",
     },
     .{
         "DIF",
@@ -594,6 +526,10 @@ pub const data = .{
     .{
         "DIVX",
         "DivX media format",
+    },
+    .{
+        "DLL",
+        "Dynamic-Link Library",
     },
     .{
         "DMG",
@@ -609,11 +545,11 @@ pub const data = .{
     },
     .{
         "DNG",
-        "Digital Negative, a-publicly available archival format for the raw files generated by digital cameras",
+        "Digital Negative",
     },
     .{
         "DOC",
-        "A Document, or an ASCII text file with text formatting codes in with the text; used by many word processors",
+        "Document File",
     },
     .{
         "DOCM",
@@ -686,14 +622,6 @@ pub const data = .{
     .{
         "E2D",
         "2-dimensional vector graphics file",
-    },
-    .{
-        "e57",
-        "A file format developed by ASTM International for storing point clouds and images",
-    },
-    .{
-        "EBD",
-        "versions of DOS system files (AUTOEXEC.BAT, COMMAND.COM, CONFIG.SYS, WINBOOT.SYS, etc.) for an emergency boot disk",
     },
     .{
         "EC",
@@ -785,11 +713,11 @@ pub const data = .{
     },
     .{
         "ESCPCB",
-        "Data file of \"esCAD pcb\", PCB Pattern Layout Design Software",
+        "PCB Pattern Layout Design Software",
     },
     .{
         "ESCSCH",
-        "Data file of \"esCAD sch\", Drawing Schematics Diagram Software",
+        "Drawing Schematics Diagram Software",
     },
     .{
         "ESD",
@@ -818,10 +746,6 @@ pub const data = .{
     .{
         "EXP",
         "Drawing File format",
-    },
-    .{
-        "EXR",
-        "OpenEXR raster image format (.exr). Used in digital image manipulation for theatrical film production. EXR is an acronym for Extended Dynamic Range. Stores 16 bit per pixel IEEE HALF-precision floating-point color channels. Can optionally store 32-bit IEEE floating-point \"Z\" channel depth-buffer components, surface normal directions, or motion vectors.",
     },
     .{
         "EXS",
@@ -853,7 +777,7 @@ pub const data = .{
     },
     .{
         "F4V",
-        "A container format for Flash Video that differs from the older FLV file format (see also SWF)",
+        "Flash video container",
     },
     .{
         "F77",
@@ -893,15 +817,11 @@ pub const data = .{
     },
     .{
         "FB2",
-        "FictionBook e-book 2.0 file (DRM-free XML format)",
-    },
-    .{
-        "FBX",
-        "3D model geometry, material textures, lighting, armature, and animation sequences for inter application use/transport",
+        "FictionBook e-book 2.0 file",
     },
     .{
         "FCHK",
-        "Gaussian-formatted checkpoint file. Used to store result of quantum chemistry calculation results.",
+        "Gaussian-formatted checkpoint file",
     },
     .{
         "FCS",
@@ -945,11 +865,7 @@ pub const data = .{
     },
     .{
         "FLV",
-        "A container format for Flash Video (see also SWF)",
-    },
-    .{
-        "FMU",
-        "A Functional Mockup Unit (FMU) implements the Functional Mockup Interface (FMI).",
+        "Flash Video container",
     },
     .{
         "FNA",
@@ -958,10 +874,6 @@ pub const data = .{
     .{
         "FNI",
         "FileNet Native Document",
-    },
-    .{
-        "FNX",
-        "Saved notes with formatting in markup language",
     },
     .{
         "FODG",
@@ -1017,7 +929,7 @@ pub const data = .{
     },
     .{
         "G6",
-        "Graph6 graph data format. Used for storing undirected graphs.",
+        "Graph6 graph data format",
     },
     .{
         "GB",
@@ -1037,23 +949,11 @@ pub const data = .{
     },
     .{
         "GDSCRIPT",
-        "Godot (game engine) Script File",
-    },
-    .{
-        "GDT",
-        "Gerätedatentransfer, an xDT application",
-    },
-    .{
-        "GED",
-        "GEDCOM",
-    },
-    .{
-        "GEOJSON",
-        "GeoJSON is specified by RFC 7946.",
+        "Godot Script File",
     },
     .{
         "GEOTIFF",
-        "Used for archiving and exchanging aerial photography or terrain data.",
+        "Archiving aerial photography or terrain data",
     },
     .{
         "GGB",
@@ -1061,7 +961,7 @@ pub const data = .{
     },
     .{
         "GIF",
-        "Compuserves' Graphics Interchange Format (bitmapped graphics)",
+        "Graphics Interchange Format",
     },
     .{
         "GM9",
@@ -1085,7 +985,7 @@ pub const data = .{
     },
     .{
         "GODOT",
-        "Godot (game engine) Project File",
+        "Godot Project File",
     },
     .{
         "GPX",
@@ -1093,11 +993,7 @@ pub const data = .{
     },
     .{
         "GRAPHML",
-        "GraphML is an acronym derived from Graph Markup Language. Represents typed, attributed, directed, and undirected graphs.",
-    },
-    .{
-        "GRB",
-        "Commonly used in meteorology to store historical and forecast weather data. Represents numerical weather prediction output (NWP).",
+        "Graph Markup Language",
     },
     .{
         "GREXLI",
@@ -1124,20 +1020,12 @@ pub const data = .{
         "Graph Visualization",
     },
     .{
-        "GW",
-        "same as .lgr. See LGR below for details on LEDA (.gw, .lgr).",
-    },
-    .{
         "GXL",
-        "GXL is an acronym derived from Graph Exchange Language. Represents typed, attributed, directed, and undirected graphs.",
+        "Graph Exchange Language",
     },
     .{
         "GZ",
         "gzip compressed data",
-    },
-    .{
-        "H!",
-        "On-line help file",
     },
     .{
         "H--",
@@ -1157,23 +1045,15 @@ pub const data = .{
     },
     .{
         "HACK",
-        "Source file for the programming language hack",
+        "Source file for Hack",
     },
     .{
         "HAR",
-        "HTTP Archive format (JSON-format web-browser log)",
-    },
-    .{
-        "HDF",
-        "General-purpose format for representing multidimensional datasets. Developed by the US National Center for Supercomputing Applications (NCSA).",
-    },
-    .{
-        "HDF5",
-        "General-purpose format for representing multidimensional datasets and images. Incompatible with HDF Version 4 and earlier.",
+        "HTTP Archive format",
     },
     .{
         "HDI",
-        "Hard Disk Image file (PC-9800 disk image file)",
+        "Hard Disk Image file",
     },
     .{
         "HDMP",
@@ -1181,7 +1061,7 @@ pub const data = .{
     },
     .{
         "HEIC",
-        "HEIF raster image and compression format. Commonly used for storing still or animated images.",
+        "HEIF raster image and compression format",
     },
     .{
         "HEIF",
@@ -1193,7 +1073,7 @@ pub const data = .{
     },
     .{
         "HIN",
-        "HyperChem HIN format. Used in cheminformatics applications and on the web for storing and exchanging 3D molecule models. Maintained by HyperCube, Inc.",
+        "HyperChem HIN format",
     },
     .{
         "HOF",
@@ -1213,7 +1093,7 @@ pub const data = .{
     },
     .{
         "HTM",
-        "see HTML",
+        "HTML Application",
     },
     .{
         "HTML",
@@ -1226,10 +1106,6 @@ pub const data = .{
     .{
         "HXX",
         "C++ header file",
-    },
-    .{
-        "ICAL",
-        "same as ICS (see below).",
     },
     .{
         "ICC",
@@ -1245,27 +1121,11 @@ pub const data = .{
     },
     .{
         "ICNS",
-        "Macintosh icons format. Raster image file format.",
+        "Macintosh icons format",
     },
     .{
         "ICO",
         "Icon file",
-    },
-    .{
-        "ICS",
-        "ICS iCalendar format. Used for the storage and exchange of calendar information. Commonly used in personal information management systems.",
-    },
-    .{
-        "IFB",
-        "Same as ICS (see above).",
-    },
-    .{
-        "IFC",
-        "Industry Foundation Classes (platform neutral, open file format used by BIM software). It is registered by ISO and is an official International Standard ISO 16739-1,2018.",
-    },
-    .{
-        "IGC",
-        "Flight tracks downloaded from GPS devices in the International Gliding Commission's prescribed format",
     },
     .{
         "IGES",
@@ -1292,18 +1152,6 @@ pub const data = .{
         "XnView IPTC template",
     },
     .{
-        "IPTRACE",
-        "AIX iptrace captures dualhome.iptrace (AIX iptrace) Shows Ethernet and Token Ring packets captured in the same file.",
-    },
-    .{
-        "IQBLOCKS",
-        "Main file for programming a VEX Robot",
-    },
-    .{
-        "IRX",
-        "\"IOP Relocatable eXecutable\". Library files to dynamically link application code to the Input/Output Processor on the PS2 to communicate with devices like memory cards, USB devices, etc.",
-    },
-    .{
         "ISO",
         "ISO-9660 table",
     },
@@ -1321,7 +1169,7 @@ pub const data = .{
     },
     .{
         "J2K",
-        "JPEG2000 raster image and compression format. Can store images as an array of rectangular tiles that are encoded separately.",
+        "JPEG2000 raster image and compression format",
     },
     .{
         "JAR",
@@ -1329,7 +1177,7 @@ pub const data = .{
     },
     .{
         "JAV",
-        "see JAVA",
+        "Java source code file",
     },
     .{
         "JAVA",
@@ -1338,14 +1186,6 @@ pub const data = .{
     .{
         "JBIG",
         "Joint Bilevel Image Group",
-    },
-    .{
-        "JCM",
-        "same as JDX (see below).",
-    },
-    .{
-        "JDX",
-        "Chemical spectroscopy format. JCAMP is an acronym derived from Joint Committee on Atomic and Molecular Physical Data.",
     },
     .{
         "JNLP",
@@ -1357,15 +1197,15 @@ pub const data = .{
     },
     .{
         "JPE",
-        "Joint Photographic Experts Group graphics file format",
+        "Joint Photographic Experts Group image",
     },
     .{
         "JPEG",
-        "Joint Photographic Experts Group graphics file format",
+        "Joint Photographic Experts Group image",
     },
     .{
         "JPG",
-        "Joint Photographic Group",
+        "Joint Photographic Experts Group image",
     },
     .{
         "JS",
@@ -1373,7 +1213,7 @@ pub const data = .{
     },
     .{
         "JSON",
-        "JSON (JavaScript Object Notation)",
+        "JavaScript Object Notation",
     },
     .{
         "JSP",
@@ -1385,7 +1225,7 @@ pub const data = .{
     },
     .{
         "JVX",
-        "JavaView 3D geometry format. The native format of the JavaView visualization software. Used for the visualization of 2D or 3D geometries. Can be embedded in web pages and viewed with the JavaView applet.",
+        "JavaView 3D geometry format",
     },
     .{
         "JXL",
@@ -1437,7 +1277,7 @@ pub const data = .{
     },
     .{
         "LATEX",
-        "LaTeX typesetting system and programming language. Commonly used for typesetting mathematical and scientific publications.",
+        "LaTeX typesetting system and programming language",
     },
     .{
         "LBR",
@@ -1448,12 +1288,8 @@ pub const data = .{
         ".LDB Leveldb data file",
     },
     .{
-        "LDT",
-        "Labordatenträger, an xDT application",
-    },
-    .{
         "LGR",
-        "LEDA graph data format. Commonly used exchange format for graphs. Stores a single, typed, directed, or undirected graph. Native graph file format of the LEDA graph library and the GraphWin application. LEDA is an acronym for Library of Efficient Datatypes and Algorithms.",
+        "LEDA graph data format",
     },
     .{
         "LHA",
@@ -1492,10 +1328,6 @@ pub const data = .{
         "Lua script file",
     },
     .{
-        "LWO",
-        "Native format of the LightWave 3D rendering and animation software. LWO is an acronym for LightWave Object. Developed by NewTek. Stores 3D objects as a collection of polygons and their properties.",
-    },
-    .{
         "LZ",
         "Archive",
     },
@@ -1513,7 +1345,7 @@ pub const data = .{
     },
     .{
         "M3U8",
-        "MPEG Audio Layer 3 Uniform Resource Locator playlist, using UTF-8 encoding",
+        "MPEG Audio Layer 3 Uniform Resource Locator playlist, UTF-8",
     },
     .{
         "M4A",
@@ -1525,11 +1357,11 @@ pub const data = .{
     },
     .{
         "M4R",
-        "See M4A",
+        "MPEG-4 Part 14 audio",
     },
     .{
         "M4V",
-        "MPEG-4 Part 14 video, which may optionally be encumbered by FairPlay DRM",
+        "MPEG-4 Part 14 video",
     },
     .{
         "M64",
@@ -1537,15 +1369,15 @@ pub const data = .{
     },
     .{
         "MA",
-        "Autodesk Maya scene description format. The native format of the Maya modeling, animation, and rendering software.",
+        "Autodesk Maya scene description format",
     },
     .{
         "MAT",
-        "MATLAB MAT-files. The native data format of the MATLAB numerical computation software. Stores numerical matrices, Boolean values, or strings. Also stores sparse arrays, nested structures, and more.",
+        "MATLAB MAT-files",
     },
     .{
         "MBOX",
-        "Unix mailbox format. Holds a collection of email messages. Native archive format of email clients such as Unix mail, Thunderbird, and many others.",
+        "Unix mailbox format",
     },
     .{
         "MCF",
@@ -1557,19 +1389,19 @@ pub const data = .{
     },
     .{
         "MDB",
-        "MDB database file. The native format of the Microsoft Access database application. Used in conjunction with the Access relational database management system and as an exchange format.",
+        "MDB database file",
     },
     .{
         "MDF",
-        "Master Data File, a Microsoft SQL Server file type",
+        "Master Data File",
     },
     .{
         "MDI",
-        "Document save in high-resolution, created by MSOffice to scan documents (OCR) and turn them into a .DOC",
+        "Document save in high-resolution",
     },
     .{
         "MDG",
-        "Digital Geometry (Programmable CAD) file format, developed by DInsight",
+        "Digital Geometry file format",
     },
     .{
         "MDL",
@@ -1585,7 +1417,7 @@ pub const data = .{
     },
     .{
         "MGF",
-        "Wolfram System MGF bitmap format. Used by the Wolfram System user interface for storing raster images. MGF is an acronym for Mathematica Graphics Format.",
+        "Wolfram System MGF bitmap format",
     },
     .{
         "MHT",
@@ -1609,7 +1441,7 @@ pub const data = .{
     },
     .{
         "MML",
-        "MathML mathematical markup language. Used for integrating mathematical formulas in web documents. Rendering of embedded MathML is supported by a number of browsers and browser additions.",
+        "MathML mathematical markup language",
     },
     .{
         "MNT",
@@ -1617,7 +1449,7 @@ pub const data = .{
     },
     .{
         "MO",
-        "Modelica models. File format specified by the Modelica Association.",
+        "Modelica models",
     },
     .{
         "MOBI",
@@ -1628,12 +1460,8 @@ pub const data = .{
         "AMPL model file",
     },
     .{
-        "MODULES",
-        "Module",
-    },
-    .{
         "MOE",
-        "same as Modelica Model .mo.",
+        "Modelica models",
     },
     .{
         "MOL",
@@ -1677,15 +1505,15 @@ pub const data = .{
     },
     .{
         "MPEG",
-        "multimedia containter format, video, audio",
+        "Multimedia containter format",
     },
     .{
         "MPG",
-        "see MPEG",
+        "Multimedia containter format",
     },
     .{
         "MPS",
-        "MPS linear programming system format (.mps) Commonly used as input format by LP solvers. MPS is an acronym for Mathematical Programming System.",
+        "MPS linear programming system format",
     },
     .{
         "MSC",
@@ -1713,7 +1541,7 @@ pub const data = .{
     },
     .{
         "MSO",
-        "Microsoft Outlook metadata for a Microsoft Word 2000 email attachment",
+        "Microsoft Outlook metadata",
     },
     .{
         "MSSTYLES",
@@ -1724,16 +1552,8 @@ pub const data = .{
         "Microsoft Update Package",
     },
     .{
-        "MTS",
-        "See M2TS",
-    },
-    .{
-        "MUP",
-        "MUP -- File type used by MindMup to export editable Mind Maps",
-    },
-    .{
         "MX",
-        "Wolfram Language serialized package format (.mx) Wolfram Language serialized package format. Used for the distribution of Wolfram Language packages. Stores arbitrary Wolfram Language expressions in a serialized format optimized for fast loading.",
+        "Wolfram Language serialized package format",
     },
     .{
         "MXF",
@@ -1757,7 +1577,7 @@ pub const data = .{
     },
     .{
         "NB",
-        "Wolfram Mathematica Notebook (see Wolfram Language)",
+        "Wolfram Mathematica Notebook",
     },
     .{
         "NC",
@@ -1765,31 +1585,23 @@ pub const data = .{
     },
     .{
         "NCD",
-        "NC Drill File (Excellon Format, printed circuit board hole definitions)",
+        "NC Drill File",
     },
     .{
         "NDK",
-        "NDK seismologic file format. Commonly used for storage and exchange of earthquake data. Stores geographical information and wave measurements for individual seismological events.",
+        "NDK seismologic file format",
     },
     .{
         "NDS",
-        "Nintendo DS file. Used for Homebrew and official games.",
+        "Nintendo DS file",
     },
     .{
         "NEF",
         "Nikon RAW image format",
     },
     .{
-        "NET",
-        "Pajek graph data format (.net) Pajek graph language and data format. Commonly used exchange format for graphs. The native format of the Pajek network analysis software. The format name is Slovenian for spider.",
-    },
-    .{
-        "NEU",
-        "Pro/Engineer neutral file format",
-    },
-    .{
         "NEX",
-        "NEXUS phylogenetic format (.nex, .nxs) Commonly used for storage and exchange of phylogenetic data. Can store DNA and protein sequences, taxa distances, alignment scores, and phylogenetic trees.",
+        "NEXUS phylogenetic format",
     },
     .{
         "NF",
@@ -1809,7 +1621,7 @@ pub const data = .{
     },
     .{
         "NOFF",
-        "3D object file format with normals (.noff, .cnoff) NOFF is an acronym derived from Object File Format. Occasionally called CNOFF if color information is present.",
+        "3D object file format",
     },
     .{
         "NPR",
@@ -1832,16 +1644,8 @@ pub const data = .{
         "NetStumbler file",
     },
     .{
-        "NSA",
-        "media",
-    },
-    .{
         "NSF",
         "NES sound format file",
-    },
-    .{
-        "NSV",
-        "media",
     },
     .{
         "NUMBERS",
@@ -1853,7 +1657,7 @@ pub const data = .{
     },
     .{
         "NXS",
-        "Same as NEXUS (.nex, .nxs). See NEX above for more details. NEXUS phylogenetic format (.nex, .nxs)",
+        "NEXUS phylogenetic format",
     },
     .{
         "O",
@@ -1865,7 +1669,7 @@ pub const data = .{
     },
     .{
         "OBS",
-        "Script",
+        "OBS Script",
     },
     .{
         "OCX",
@@ -1893,11 +1697,11 @@ pub const data = .{
     },
     .{
         "ODT",
-        "Text (Word processing) documents",
+        "Word processing document",
     },
     .{
         "OFF",
-        "3D object file format (.off, .coff) OFF is an acronym for Object File Format. Used for storing and exchanging 3D models.",
+        "Object File Format",
     },
     .{
         "OGA",
@@ -1985,11 +1789,11 @@ pub const data = .{
     },
     .{
         "OTT",
-        "Text (Word processing) documents template",
+        "Word processing document template",
     },
     .{
         "OV2",
-        "Overlay file (part of program to be loaded when needed)",
+        "Overlay file",
     },
     .{
         "OWL",
@@ -2029,15 +1833,11 @@ pub const data = .{
     },
     .{
         "PAL",
-        "Paint Shop Pro color palette (JASC format)",
+        "Paint Shop Pro color palette",
     },
     .{
         "PAM",
         "PAM Portable Arbitrary Map graphics format",
-    },
-    .{
-        "PAPA",
-        "Flipline Studio's game backups like JackSmith, Papa's Wingeria version 1.2+, Papa's Pancakeria version 1.4+",
     },
     .{
         "PAR",
@@ -2046,10 +1846,6 @@ pub const data = .{
     .{
         "PAR2",
         "Parity Archive v2",
-    },
-    .{
-        "PARAMS",
-        "MXNet net representation format (.json, .params) Underlying format of the MXNet deep learning framework, used by the Wolfram Language. Networks saved as MXNet are stored as two separate file, a .json file specifying the network topology and a .params file specifying the numeric arrays used in the network.",
     },
     .{
         "PAS",
@@ -2065,7 +1861,7 @@ pub const data = .{
     },
     .{
         "PBM",
-        "ASCII portable bitmap format (.pbm) PBM monochrome raster image format. Member of the Portable family of image formats. Related to PGM and PPM. Native format of the Netpbm graphics software package.",
+        "ASCII portable bitmap format",
     },
     .{
         "PBO",
@@ -2073,7 +1869,7 @@ pub const data = .{
     },
     .{
         "PCAP",
-        "Network packet capture format (.pcap)",
+        "Network packet capture format",
     },
     .{
         "PCL",
@@ -2097,7 +1893,7 @@ pub const data = .{
     },
     .{
         "PDF",
-        "Adobe's Portable Document Format",
+        "Portable Document Format",
     },
     .{
         "PDI",
@@ -2116,14 +1912,6 @@ pub const data = .{
         "PALASM Design Description",
     },
     .{
-        "PEM",
-        "A text-based certificate file defined in RFC 1421 through RFC 1424",
-    },
-    .{
-        "pet",
-        "package",
-    },
-    .{
         "PFA",
         "PostScript Font File",
     },
@@ -2137,7 +1925,7 @@ pub const data = .{
     },
     .{
         "PFC",
-        "(Personal Filing Cabinet) contains e-mail, preferences and other personal information",
+        "Personal Filing Cabinet",
     },
     .{
         "PFM",
@@ -2145,7 +1933,7 @@ pub const data = .{
     },
     .{
         "PGN",
-        "Portable Game Notation -Text specification for Chess game",
+        "Portable Game Notation",
     },
     .{
         "PFX",
@@ -2185,7 +1973,7 @@ pub const data = .{
     },
     .{
         "PI2",
-        "Portrait Innovations High Resolution Encrypted Image file",
+        "Portrait Innovations High Resolution Encrypted Image",
     },
     .{
         "PIE",
@@ -2229,7 +2017,7 @@ pub const data = .{
     },
     .{
         "PLS",
-        "Multimedia Playlist, primarily for streaming",
+        "Multimedia Playlist",
     },
     .{
         "PM",
@@ -2264,12 +2052,8 @@ pub const data = .{
         "MS Office Open-XML Auto-Play Presentation",
     },
     .{
-        "PRJ",
-        "Mkd (Unix command)",
-    },
-    .{
         "PROPERTIES",
-        "Configuration file format. Commonly used in Java projects. Associates string keys to string values.",
+        "Configuration file format",
     },
     .{
         "PROTO",
@@ -2306,10 +2090,6 @@ pub const data = .{
     .{
         "PS1",
         "Windows Powershell script",
-    },
-    .{
-        "PTF",
-        "PlayStation Portable Theme file",
     },
     .{
         "PTS",
@@ -2373,7 +2153,7 @@ pub const data = .{
     },
     .{
         "R3D",
-        "Red Raw Video (raw video data created with a Red camera)",
+        "Red Raw Video",
     },
     .{
         "R8P",
@@ -2449,7 +2229,7 @@ pub const data = .{
     },
     .{
         "Rob",
-        "Robot4 (TM) Input file format",
+        "Robot4 Input file format",
     },
     .{
         "ROL",
@@ -2465,11 +2245,7 @@ pub const data = .{
     },
     .{
         "RSA",
-        "Harwell–Boeing matrix format. Used for exchanging and storing sparse matrices.",
-    },
-    .{
-        "RSL, RSLS, RSLF",
-        "Resilio Sync File Placeholder",
+        "Harwell–Boeing matrix format",
     },
     .{
         "RST",
@@ -2477,15 +2253,11 @@ pub const data = .{
     },
     .{
         "RTF",
-        "Rich Text Format text file (help file script)",
+        "Rich Text Format",
     },
     .{
         "RUA",
-        "same as RSA",
-    },
-    .{
-        "RUN",
-        "AMPL script file",
+        "Harwell–Boeing matrix format",
     },
     .{
         "RUN",
@@ -2573,7 +2345,7 @@ pub const data = .{
     },
     .{
         "SDS",
-        "Self Defining Structure provides for N-dimensional very large datasets using HHCode",
+        "Self Defining Structure",
     },
     .{
         "SDTS",
@@ -2773,11 +2545,7 @@ pub const data = .{
     },
     .{
         "SUR",
-        "Surface topography (in native \"SURF\" format)",
-    },
-    .{
-        "SVC",
-        "Represents the ServiceHost instance hosted by Internet Information Services",
+        "Surface topography ",
     },
     .{
         "SVELTE",
@@ -2881,7 +2649,7 @@ pub const data = .{
     },
     .{
         "TIF",
-        "See TIFF",
+        "Tag Image File Format image",
     },
     .{
         "TIFF",
@@ -2954,10 +2722,6 @@ pub const data = .{
     .{
         "UMP",
         "Umple UML Programming Language Format",
-    },
-    .{
-        "UNV",
-        "Text file containing finite elements nodal coordinates and more",
     },
     .{
         "UOS",
@@ -3165,23 +2929,19 @@ pub const data = .{
     },
     .{
         "WAD",
-        "Default package format for Doom that contains sprites, levels, and game data",
+        "Default package format for Doom",
     },
     .{
         "WAV",
-        "Sound format (Microsoft Windows RIFF WAVE)",
+        "Microsoft Windows RIFF WAVE",
     },
     .{
         "WEBM",
-        "Royalty-free video/audio container",
+        "Video/audio container",
     },
     .{
         "WIN",
-        "Game code for GameMaker games",
-    },
-    .{
-        "WITNESS_CAMPAIGN",
-        "Game save file for The Witness",
+        "GameMaker code",
     },
     .{
         "WK1",
@@ -3201,7 +2961,7 @@ pub const data = .{
     },
     .{
         "WLMP",
-        "Windows Live Moviemaker Project, contains paths from where the images/audios/videos of the project are located",
+        "Windows Live Moviemaker Project",
     },
     .{
         "WLS",
@@ -3229,7 +2989,7 @@ pub const data = .{
     },
     .{
         "WPS",
-        "Wii U plugin for aroma",
+        "Wii U plugin",
     },
     .{
         "WS",
@@ -3268,20 +3028,12 @@ pub const data = .{
         "Gimp image file",
     },
     .{
-        "XDM",
-        "Directory Manipulator for 32-bit Protected Mode",
-    },
-    .{
-        "XE",
-        "Xenon – for Associative 3D Modeling",
-    },
-    .{
         "XEX",
         "Xbox 360 Executable File",
     },
     .{
         "XLR",
-        "Microsoft Works spreadsheet or chart file, very similar to Microsoft Excel's XLS",
+        "Microsoft Works spreadsheet or chart file",
     },
     .{
         "XLS",
@@ -3289,15 +3041,15 @@ pub const data = .{
     },
     .{
         "XLSB",
-        "Microsoft Excel 2007 Binary Workbook (BIFF12)(Spreadsheets)",
+        "Microsoft Excel 2007 Binary Workbook",
     },
     .{
         "XLSM",
-        "Microsoft Excel 2007 Macro-Enabled Workbook (Spreadsheets)",
+        "Microsoft Excel 2007 Macro-Enabled Workbook",
     },
     .{
         "XLSX",
-        "Office Open XML Workbook (Spreadsheets)",
+        "Office Open XML Workbook",
     },
     .{
         "XM",
@@ -3328,16 +3080,8 @@ pub const data = .{
         "XML schema description",
     },
     .{
-        "XSF",
-        "data",
-    },
-    .{
         "XSL",
-        "XSL Stylesheet",
-    },
-    .{
-        "XSLT",
-        "XSLT file",
+        "Stylesheet",
     },
     .{
         "XSN",
@@ -3365,7 +3109,7 @@ pub const data = .{
     },
     .{
         "XZ",
-        "a lossless data compression file format incorporating the LZMA/LZMA2 compression algorithms.",
+        "LZMA/LZMA2 compressed format",
     },
     .{
         "Y",
@@ -3380,8 +3124,16 @@ pub const data = .{
         "YAML source file",
     },
     .{
+        "ZIG",
+        "Zig source file",
+    },
+    .{
         "ZIP",
         "ZIP (file format)",
+    },
+    .{
+        "ZON",
+        "Zig Object Notation",
     },
     .{
         "ZRX",
@@ -3393,6 +3145,6 @@ pub const data = .{
     },
     .{
         "ZST",
-        "ZStandard, a lossless data compression file format.",
+        "ZStandard compression file format",
     },
 };
