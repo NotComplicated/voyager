@@ -677,7 +677,7 @@ pub const data = .{
     },
     .{
         "EPUB",
-        "Electronic Publication (e-Reader format)",
+        "Electronic Publication",
     },
     .{
         "EU4",
@@ -1270,6 +1270,10 @@ pub const data = .{
     .{
         "LOCK",
         "Lockfile",
+    },
+    .{
+        "LOG",
+        "Log file",
     },
     .{
         "LRC",
@@ -1985,7 +1989,7 @@ pub const data = .{
     },
     .{
         "PNG",
-        "Portable Network Graphics file",
+        "Portable Network Graphics",
     },
     .{
         "POM",

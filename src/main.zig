@@ -24,7 +24,7 @@ const Model = @import("Model.zig");
 const title = "Voyager" ++ if (debug) " (Debug)" else "";
 const width = 1200 + if (debug) 400 else 0;
 const height = 600;
-const mem_scale = 8;
+const mem_scale = 4;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
@@ -203,7 +203,7 @@ fn frame(model: *Model) void {
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), raylib_alloc);
 
-    cursor = rl.MouseCursor.default;
+    cursor = .default;
     defer rl.setMouseCursor(cursor);
 
     model.render();

@@ -282,17 +282,24 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
 }
 
 pub fn init() Model.Error!Entries {
-    return .{
+    const expected_entries = 128;
+
+    var entries = Entries{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
         .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, 1024),
-        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, 64),
+        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, expected_entries * 8),
+        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, expected_entries),
         .sortings = meta.FieldType(Entries, .sortings)
             .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
         .curr_sorting = .name,
         .sort_type = .asc,
         .max_name_len = 0,
     };
+    for (&entries.data.values) |*data| {
+        data.ensureTotalCapacity(main.alloc, expected_entries) catch return Model.Error.OutOfMemory;
+    }
+
+    return entries;
 }
 
 pub fn deinit(entries: *Entries) void {
