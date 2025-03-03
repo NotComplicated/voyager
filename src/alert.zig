@@ -15,6 +15,10 @@ const unexpected_error = "Unexpected Error";
 
 var alert: struct { timer: u32, msg: std.ArrayListUnmanaged(u8) } = .{ .timer = 0, .msg = .{} };
 
+pub fn deinit() void {
+    alert.msg.deinit(main.alloc);
+}
+
 pub fn update(err: anyerror) void {
     if (err == error.OutOfMemory) process.abort();
     alert.timer = error_duration;

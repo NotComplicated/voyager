@@ -138,6 +138,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     },
                     .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
                 },
+                .scroll = .{ .horizontal = true },
                 .rectangle = .{
                     .color = if (self.cursor == .none) main.theme.nav else main.theme.selected,
                     .corner_radius = main.rounded,

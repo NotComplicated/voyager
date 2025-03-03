@@ -182,6 +182,9 @@ pub fn main() !void {
     try resources.init();
     defer resources.deinit();
 
+    defer alert.deinit();
+    defer tooltip.deinit();
+
     var model = try Model.init();
     defer model.deinit();
 

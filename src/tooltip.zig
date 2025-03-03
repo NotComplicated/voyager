@@ -24,6 +24,10 @@ var tooltip: struct {
     .msg = .{},
 };
 
+pub fn deinit() void {
+    tooltip.msg.deinit(main.alloc);
+}
+
 pub fn update(pos: clay.Vector2) ?@TypeOf(tooltip.msg.writer(undefined)) {
     const reset = @TypeOf(tooltip.state){ .delay = .{ .timer = tooltip_duration, .pos = pos } };
     switch (tooltip.state) {

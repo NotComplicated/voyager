@@ -128,10 +128,6 @@ pub const data = .{
         "Android application package",
     },
     .{
-        "ARC",
-        "ARC (file format)",
-    },
-    .{
         "ART",
         "Gerber format",
     },
@@ -245,7 +241,7 @@ pub const data = .{
     },
     .{
         "BMP",
-        "OS/2 or Win graphics format (BitMap Picture)",
+        "BitMap Picture",
     },
     .{
         "BPS",
@@ -284,10 +280,6 @@ pub const data = .{
         "C++ language source",
     },
     .{
-        "Config",
-        "Configuration file",
-    },
-    .{
         "C32",
         "COMBOOT Executable (32-bit)",
     },
@@ -321,7 +313,7 @@ pub const data = .{
     },
     .{
         "CDR",
-        "Vector graphics format (drawinF",
+        "Vector graphics format",
     },
     .{
         "CER",
@@ -440,10 +432,6 @@ pub const data = .{
         "C# language source",
     },
     .{
-        "CSPROJ",
-        "C# project file",
-    },
-    .{
         "CSS",
         "Cascading style sheet",
     },
@@ -520,10 +508,6 @@ pub const data = .{
         "Data Interchange Format",
     },
     .{
-        "DIRED",
-        "Directory listing (ls format)",
-    },
-    .{
         "DIVX",
         "DivX media format",
     },
@@ -537,7 +521,7 @@ pub const data = .{
     },
     .{
         "DMP",
-        "memory dump file (e.g. screen or memory)",
+        "memory dump file",
     },
     .{
         "DN",
@@ -664,10 +648,6 @@ pub const data = .{
         "Outlook Express Email Message",
     },
     .{
-        "EMAKER",
-        "E language source code (maker)",
-    },
-    .{
         "EMF",
         "Microsoft Enhanced Metafile",
     },
@@ -712,14 +692,6 @@ pub const data = .{
         "ECMAScript 6 file",
     },
     .{
-        "ESCPCB",
-        "PCB Pattern Layout Design Software",
-    },
-    .{
-        "ESCSCH",
-        "Drawing Schematics Diagram Software",
-    },
-    .{
         "ESD",
         "Windows Imaging Format",
     },
@@ -761,15 +733,15 @@ pub const data = .{
     },
     .{
         "F03",
-        "Fortran language source code file (in free form)",
+        "Fortran language source code file",
     },
     .{
         "F08",
-        "Fortran language source code file (in free form)",
+        "Fortran language source code file",
     },
     .{
         "F18",
-        "Fortran language source code file (in free form)",
+        "Fortran language source code file",
     },
     .{
         "F4",
@@ -781,15 +753,15 @@ pub const data = .{
     },
     .{
         "F77",
-        "Fortran language source code file (in fixed form)",
+        "Fortran language source code file",
     },
     .{
         "F90",
-        "Fortran language source code file (in free form)",
+        "Fortran language source code file",
     },
     .{
         "F95",
-        "Fortran language source code file (in free form)",
+        "Fortran language source code file",
     },
     .{
         "FA",
@@ -798,10 +770,6 @@ pub const data = .{
     .{
         "FAA",
         "FASTA format amino acid",
-    },
-    .{
-        "FACTOR",
-        "Factor source file",
     },
     .{
         "FASTA",
@@ -900,20 +868,12 @@ pub const data = .{
         "Fauna Query Language source file",
     },
     .{
-        "Freq",
-        "Match-n-Freq (TM) Input file format",
-    },
-    .{
         "FRAG",
         "Fragment File, usually stored on MOVPKG files",
     },
     .{
         "FRM",
         "MySQL Database Metadata",
-    },
-    .{
-        "Frq7",
-        "Match-n-Freq (TM) version 7+ Input file format",
     },
     .{
         "FS",
@@ -996,10 +956,6 @@ pub const data = .{
         "Graph Markup Language",
     },
     .{
-        "GREXLI",
-        "Uncompressed folder as a file",
-    },
-    .{
         "GRIB",
         "same as GRB",
     },
@@ -1028,16 +984,12 @@ pub const data = .{
         "gzip compressed data",
     },
     .{
-        "H--",
-        "C-- language header",
-    },
-    .{
         "H",
-        "Header file (usually C language)",
+        "Header file",
     },
     .{
         "H++",
-        "Header file",
+        "C++ header file",
     },
     .{
         "HA",
@@ -1093,11 +1045,11 @@ pub const data = .{
     },
     .{
         "HTM",
-        "HTML Application",
+        "Hypertext Markup Language",
     },
     .{
         "HTML",
-        "Hypertext Markup Language (WWW)",
+        "Hypertext Markup Language",
     },
     .{
         "HUM",
@@ -1256,10 +1208,6 @@ pub const data = .{
         "Krita image file",
     },
     .{
-        "KRABER",
-        "Kraber source code file",
-    },
-    .{
         "KSH",
         "Kornshell source file",
     },
@@ -1296,6 +1244,10 @@ pub const data = .{
         "LHA Archive",
     },
     .{
+        "LIB",
+        "Library",
+    },
+    .{
         "LISP",
         "LISP source code file",
     },
@@ -1316,8 +1268,8 @@ pub const data = .{
         "Local file shortcut",
     },
     .{
-        "LOGICX",
-        "Logic Pro files",
+        "LOCK",
+        "Lockfile",
     },
     .{
         "LRC",
@@ -1381,7 +1333,7 @@ pub const data = .{
     },
     .{
         "MCF",
-        "Multimedia Container Format (predecessor of Matroska)",
+        "Multimedia Container Format",
     },
     .{
         "MD",
@@ -1557,7 +1509,7 @@ pub const data = .{
     },
     .{
         "MXF",
-        "Material exchange format (RFC 4539, SMPTE 377M)",
+        "Material exchange format",
     },
     .{
         "MYD",
@@ -1693,7 +1645,7 @@ pub const data = .{
     },
     .{
         "ODS",
-        "OpenDocument spreadsheet format (.ods)",
+        "OpenDocument spreadsheet format",
     },
     .{
         "ODT",
@@ -2080,10 +2032,6 @@ pub const data = .{
         "Windows Powershell module",
     },
     .{
-        "PSPPALETTE",
-        "Paint Shop Pro color palette (JASC format)",
-    },
-    .{
         "PST",
         "Archive File",
     },
@@ -2112,10 +2060,6 @@ pub const data = .{
         "Python script file",
     },
     .{
-        "QFX",
-        "Quicken-specific implementation of the OFX specification",
-    },
-    .{
         "QIF",
         "Quicken Interchange Format",
     },
@@ -2129,7 +2073,7 @@ pub const data = .{
     },
     .{
         "QT",
-        "QuickTime movie (animation)",
+        "QuickTime movie",
     },
     .{
         "QTVR",
@@ -2142,10 +2086,6 @@ pub const data = .{
     .{
         "R",
         "Ratfor file",
-    },
-    .{
-        "R00, R01, ...",
-        "Part of a multi-file RAR archive",
     },
     .{
         "R2D",
@@ -2364,20 +2304,12 @@ pub const data = .{
         "Video",
     },
     .{
-        "SERIES",
-        "Encrypted Series Distiller database",
-    },
-    .{
         "SF",
         "JAR Digital Signature",
     },
     .{
         "SFB",
         "Configuration file",
-    },
-    .{
-        "SFH",
-        "backup file for Strike Force Heroes (SFH) on Steam",
     },
     .{
         "SFX",
@@ -2416,20 +2348,8 @@ pub const data = .{
         "S-Lang source code file",
     },
     .{
-        "SLDASM",
-        "SolidWorks assembly",
-    },
-    .{
-        "SLDPRT",
-        "SolidWorks part",
-    },
-    .{
         "SM",
         "SMALLTALK source code file",
-    },
-    .{
-        "SMCLVL",
-        "Secret Maryo Chronicles Level",
     },
     .{
         "SMK",
@@ -2548,10 +2468,6 @@ pub const data = .{
         "Surface topography ",
     },
     .{
-        "SVELTE",
-        "Svelte source code",
-    },
-    .{
         "SVG",
         "Scalable Vector Graphics",
     },
@@ -2668,8 +2584,8 @@ pub const data = .{
         "Temporary file",
     },
     .{
-        "TORRENT",
-        "Torrent file",
+        "TOML",
+        "Configuration file",
     },
     .{
         "TQL",
@@ -2790,10 +2706,6 @@ pub const data = .{
     .{
         "VBOX-EXTPACK",
         "VirtualBox extension package",
-    },
-    .{
-        "VBPROJ",
-        "Visual Basic .Net project file",
     },
     .{
         "VBR",
@@ -3121,7 +3033,7 @@ pub const data = .{
     },
     .{
         "YAML",
-        "YAML source file",
+        "Configuration file",
     },
     .{
         "ZIG",
@@ -3129,7 +3041,7 @@ pub const data = .{
     },
     .{
         "ZIP",
-        "ZIP (file format)",
+        "Archive file format",
     },
     .{
         "ZON",

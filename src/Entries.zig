@@ -172,11 +172,18 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     };
 }
 
+var file_types = std.StaticStringMapWithEql([]const u8, std.static_string_map.eqlAsciiIgnoreCase).initComptime(extensions.data);
+
 const container_id = main.newId("EntriesContainer");
 const double_click_delay = 300;
-const char_px_width = 10;
+const ext_len = 6;
+const char_px_width = 10; // not monospaced font, so this is just an approximation
+const entries_px_offset = 455; // TODO this includes shortcut width
 const min_name_chars = 16;
 const max_name_chars = 32;
+const type_chars = 12;
+const size_chars = 16;
+const timespan_chars = 20;
 
 fn getSizing(chars: comptime_int) clay.Element.Sizing {
     return .{
@@ -186,9 +193,9 @@ fn getSizing(chars: comptime_int) clay.Element.Sizing {
         }),
     };
 }
-const type_sizing = getSizing(12);
-const size_sizing = getSizing(16);
-const timespan_sizing = getSizing(20);
+const type_sizing = getSizing(type_chars);
+const size_sizing = getSizing(size_chars);
+const timespan_sizing = getSizing(timespan_chars);
 
 const SYSTEMTIME = extern struct {
     wYear: os.windows.WORD,
@@ -274,17 +281,6 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
     }) catch return Model.Error.OutOfMemory;
 }
 
-fn getFileType(name: []const u8) []const u8 {
-    const FileTypes = struct {
-        var map = std.StaticStringMapWithEql(
-            []const u8,
-            std.static_string_map.eqlAsciiIgnoreCase,
-        ).initComptime(extensions.data);
-    };
-    const extension = fs.path.extension(name);
-    return if (extension.len > 0) FileTypes.map.get(extension[1..]) orelse "" else "";
-}
-
 pub fn init() Model.Error!Entries {
     return .{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
@@ -351,7 +347,12 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                     } else if (clay.pointerOver(getEntryId(kind, "Type", sorted_index))) {
                         if (kind == .file) {
                             const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
-                            writer.writeAll(getFileType(entries.names.items[start..end])) catch return Model.Error.OutOfMemory;
+                            const extension = fs.path.extension(entries.names.items[start..end]);
+                            const file_type = if (extension.len > 0)
+                                if (extension.len > ext_len) "" else file_types.get(extension[1..]) orelse ""
+                            else
+                                "";
+                            writer.writeAll(file_type) catch return Model.Error.OutOfMemory;
                         }
                     } else if (clay.pointerOver(getEntryId(kind, "Size", sorted_index))) {
                         const size = entries.data_slices.get(kind).items(.size)[entry.index];
@@ -371,20 +372,24 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
 }
 
 pub fn render(entries: Entries) void {
+    const width: usize = @intCast(rl.getScreenWidth());
+    const shortcuts_width = 280; // TODO
+    const name_chars: usize = @max(@min(entries.max_name_len, max_name_chars), min_name_chars);
     const name_sizing = clay.Element.Sizing{
-        .width = clay.Element.Sizing.Axis.fit(.{
-            .min = @max(@as(f32, @floatFromInt(entries.max_name_len)), min_name_chars) * char_px_width,
-            .max = max_name_chars * char_px_width,
-        }),
+        .width = clay.Element.Sizing.Axis.fixed(@floatFromInt(name_chars * char_px_width)),
     };
 
     clay.ui()(.{
         .id = container_id,
         .layout = .{
-            .padding = .{ .left = 10, .right = 10, .top = 5, .bottom = 5 },
-            .sizing = clay.Element.Sizing.grow(.{}),
+            .padding = .{ .left = 10, .right = 10, .top = 0, .bottom = 10 },
+            .sizing = .{
+                .width = clay.Element.Sizing.Axis.grow(.{}),
+                .height = clay.Element.Sizing.Axis.grow(.{}),
+            },
             .layout_direction = .top_to_bottom,
         },
+        .scroll = .{ .horizontal = true },
     })({
         clay.ui()(.{
             .id = main.newId("EntriesColumns"),
@@ -420,12 +425,7 @@ pub fn render(entries: Entries) void {
                     })({
                         main.pointer();
                         main.text(title);
-                        // clay.ui()(.{
-                        //     .id = getColumnId(title, "Pad"),
-                        //     .layout = .{
-                        //         .sizing = .{ .width = .{ .type = .grow } },
-                        //     },
-                        // })({});
+
                         clay.ui()(.{
                             .id = getColumnId(title, "Sort"),
                             .layout = .{
@@ -443,18 +443,31 @@ pub fn render(entries: Entries) void {
                 }
             }.f;
 
+            var cutoff: usize = entries_px_offset;
+
             column(entries, .name, name_sizing);
-            column(entries, .ext, type_sizing);
-            column(entries, .size, size_sizing);
-            column(entries, .created, timespan_sizing);
-            column(entries, .modified, timespan_sizing);
+            cutoff += name_chars * char_px_width;
+
+            if (width > cutoff) column(entries, .ext, type_sizing);
+            cutoff += type_chars * char_px_width;
+
+            if (width > cutoff) column(entries, .size, size_sizing);
+            cutoff += size_chars * char_px_width;
+
+            if (width > cutoff) column(entries, .created, timespan_sizing);
+            cutoff += timespan_chars * char_px_width;
+
+            if (width > cutoff) column(entries, .modified, timespan_sizing);
         });
 
         clay.ui()(.{
             .id = main.newId("Entries"),
             .layout = .{
                 .padding = clay.Padding.all(10),
-                .sizing = clay.Element.Sizing.grow(.{}),
+                .sizing = .{
+                    .width = clay.Element.Sizing.Axis.grow(.{ .max = @floatFromInt(width - shortcuts_width) }),
+                    .height = clay.Element.Sizing.Axis.grow(.{ .max = 1 }), // hacky fix for element leaking off-screen
+                },
                 .child_gap = 4,
                 .layout_direction = .top_to_bottom,
             },
@@ -514,6 +527,8 @@ pub fn render(entries: Entries) void {
                             })({});
                         });
 
+                        var cutoff: usize = entries_px_offset;
+
                         clay.ui()(.{
                             .id = getEntryId(kind, "Name", sorted_index),
                             .layout = .{
@@ -526,64 +541,84 @@ pub fn render(entries: Entries) void {
                                 main.text("...");
                             } else main.text(entry.name);
                         });
+                        cutoff += name_chars * char_px_width;
 
-                        clay.ui()(.{
-                            .id = getEntryId(kind, "Type", sorted_index),
-                            .layout = .{
-                                .padding = clay.Padding.all(6),
-                                .sizing = type_sizing,
-                            },
-                        })({
-                            const extension = fs.path.extension(entry.name);
-                            main.text(if (kind == .dir) "" else if (extension.len > 0) extension[1..] else "");
-                        });
-
-                        clay.ui()(.{
-                            .id = getEntryId(kind, "Size", sorted_index),
-                            .layout = .{
-                                .padding = clay.Padding.all(6),
-                                .sizing = size_sizing,
-                            },
-                        })({
-                            main.text(switch (kind) {
-                                .dir => "",
-                                .file => entries.sizes.items[entry.index].slice(),
+                        if (width > cutoff) {
+                            clay.ui()(.{
+                                .id = getEntryId(kind, "Type", sorted_index),
+                                .layout = .{
+                                    .padding = clay.Padding.all(6),
+                                    .sizing = type_sizing,
+                                },
+                            })({
+                                if (kind == .file) {
+                                    const extension = fs.path.extension(entry.name);
+                                    if (extension.len > 0 and extension.len <= ext_len) {
+                                        if (file_types.getIndex(extension[1..])) |i| {
+                                            main.text(file_types.kvs.keys[i]);
+                                        } else {
+                                            main.text(extension[1..]);
+                                        }
+                                    }
+                                }
                             });
-                        });
+                        }
+                        cutoff += type_chars * char_px_width;
 
-                        clay.ui()(.{
-                            .id = getEntryId(kind, "Created", sorted_index),
-                            .layout = .{
-                                .padding = clay.Padding.all(6),
-                                .sizing = timespan_sizing,
-                            },
-                        })({
-                            if (entry.created) |created| {
-                                switch (created) {
+                        if (width > cutoff) {
+                            clay.ui()(.{
+                                .id = getEntryId(kind, "Size", sorted_index),
+                                .layout = .{
+                                    .padding = clay.Padding.all(6),
+                                    .sizing = size_sizing,
+                                },
+                            })({
+                                main.text(switch (kind) {
+                                    .dir => "",
+                                    .file => entries.sizes.items[entry.index].slice(),
+                                });
+                            });
+                        }
+                        cutoff += size_chars * char_px_width;
+
+                        if (width > cutoff) {
+                            clay.ui()(.{
+                                .id = getEntryId(kind, "Created", sorted_index),
+                                .layout = .{
+                                    .padding = clay.Padding.all(6),
+                                    .sizing = timespan_sizing,
+                                },
+                            })({
+                                if (entry.created) |created| {
+                                    switch (created) {
+                                        .just_now => main.text("Just now"),
+                                        .past => |timespan| {
+                                            main.text(twoDigitString(timespan.count));
+                                            main.text(timespan.metric.toString(timespan.count != 1));
+                                        },
+                                    }
+                                } else main.text("");
+                            });
+                        }
+                        cutoff += timespan_chars * char_px_width;
+
+                        if (width > cutoff) {
+                            clay.ui()(.{
+                                .id = getEntryId(kind, "Modified", sorted_index),
+                                .layout = .{
+                                    .padding = clay.Padding.all(6),
+                                    .sizing = timespan_sizing,
+                                },
+                            })({
+                                switch (entry.modified) {
                                     .just_now => main.text("Just now"),
                                     .past => |timespan| {
                                         main.text(twoDigitString(timespan.count));
                                         main.text(timespan.metric.toString(timespan.count != 1));
                                     },
                                 }
-                            } else main.text("");
-                        });
-
-                        clay.ui()(.{
-                            .id = getEntryId(kind, "Modified", sorted_index),
-                            .layout = .{
-                                .padding = clay.Padding.all(6),
-                                .sizing = timespan_sizing,
-                            },
-                        })({
-                            switch (entry.modified) {
-                                .just_now => main.text("Just now"),
-                                .past => |timespan| {
-                                    main.text(twoDigitString(timespan.count));
-                                    main.text(timespan.metric.toString(timespan.count != 1));
-                                },
-                            }
-                        });
+                            });
+                        }
                     });
                 }
             }
@@ -706,11 +741,14 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
                                 getName(passed_entries, lhs),
                                 getName(passed_entries, rhs),
                             )
-                        else
-                            ascii.lessThanIgnoreCase(
-                                fs.path.extension(getName(passed_entries, lhs)),
-                                fs.path.extension(getName(passed_entries, rhs)),
-                            ),
+                        else {
+                            const lhs_ext = fs.path.extension(getName(passed_entries, lhs));
+                            const rhs_ext = fs.path.extension(getName(passed_entries, rhs));
+                            return ascii.lessThanIgnoreCase(
+                                if (lhs_ext.len > ext_len) "" else lhs_ext,
+                                if (rhs_ext.len > ext_len) "" else rhs_ext,
+                            );
+                        },
                         .created => {
                             const created = passed_entries.data_slices.get(kind).items(.created_millis);
                             return created[lhs] orelse 0 < created[rhs] orelse 0;
