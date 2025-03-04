@@ -169,6 +169,7 @@ pub fn read() Input {
             .home => .{ .key = .home },
             .end => .{ .key = .end },
             .escape => .{ .key = .escape },
+            .enter => .{ .key = .enter },
             .tab => .{ .key = .tab },
             .up => .{ .key = .up },
             .down => .{ .key = .down },

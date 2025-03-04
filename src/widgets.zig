@@ -16,19 +16,24 @@ const Model = @import("Model.zig");
 pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Element.Config.Id) type {
     return struct {
         content: std.ArrayListUnmanaged(u8),
-        cursor: union(enum) {
-            none,
-            at: usize,
-            selected: struct { at: usize, len: usize },
-            selecting: struct { from: usize, to: usize },
-        },
+        cursor: Cursor,
+        history: std.BoundedArray(struct { content: std.ArrayListUnmanaged(u8), cursor: Cursor }, max_history),
+
         // TODO millis timer for double-click select word
         // TODO select all when going from none -> selected w/o selecting any
 
+        const max_history = 8;
         const max_paste_len = 1024;
         const char_px_width = 9;
 
         const Self = @This();
+
+        const Cursor = union(enum) {
+            none,
+            at: usize,
+            selected: struct { at: usize, len: usize },
+            selecting: struct { from: usize, to: usize },
+        };
 
         const Message = union(enum) {
             submit: []const u8,
@@ -38,6 +43,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             var text_box = Self{
                 .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 256),
                 .cursor = .none,
+                .history = .{},
             };
             errdefer text_box.content.deinit(main.alloc);
 
@@ -47,11 +53,17 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 try text_box.content.appendSlice(main.alloc, path);
             }
 
+            for (text_box.history.unusedCapacitySlice()) |*hist| {
+                hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = .none };
+            }
+
             return text_box;
         }
 
         pub fn deinit(self: *Self) void {
             self.content.deinit(main.alloc);
+            for (self.history.slice()) |*hist| hist.content.deinit(main.alloc);
+            for (self.history.unusedCapacitySlice()) |*hist| hist.content.deinit(main.alloc);
         }
 
         pub fn update(self: *Self, input: Input) Model.Error!?Message {
@@ -237,6 +249,18 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 },
             }
 
+            const cursor_tag = meta.activeTag(self.cursor);
+            if ((cursor_tag == .at or cursor_tag == .selected) and input.action != null and meta.activeTag(input.action.?) == .key) {
+                if (self.history.len > 0) {
+                    const prev_hist = &self.history.slice()[self.history.len - 1];
+                    if (!mem.eql(u8, self.value(), prev_hist.content.items)) {
+                        if (self.history.addOne() catch null) |next_hist| {
+                            _ = next_hist;
+                        }
+                    }
+                }
+            }
+
             return null;
         }
 
@@ -244,7 +268,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             clay.ui()(.{
                 .id = id,
                 .layout = .{
-                    .padding = clay.Padding.all(6),
+                    .padding = clay.Padding.horizontal(8),
                     .sizing = .{
                         .width = .{ .type = .grow },
                         .height = clay.Element.Sizing.Axis.fixed(Model.row_height),
@@ -258,6 +282,16 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 },
             })({
                 main.ibeam();
+
+                const highlighted = struct {
+                    fn f(contents: []const u8) void {
+                        clay.ui()(.{
+                            .rectangle = .{ .color = main.theme.highlight },
+                        })({
+                            main.textEx(.roboto_mono, .sm, contents, main.theme.mantle);
+                        });
+                    }
+                }.f;
 
                 switch (self.cursor) {
                     .none => {
@@ -281,9 +315,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
 
                     .selected => |selection| {
                         main.textEx(.roboto_mono, .sm, self.content.items[0..selection.at], main.theme.text);
-                        clay.ui()(.{ .rectangle = .{ .color = main.theme.sapphire } })({
-                            main.textEx(.roboto_mono, .sm, self.content.items[selection.at..][0..selection.len], main.theme.text);
-                        });
+                        highlighted(self.content.items[selection.at..][0..selection.len]);
                         main.textEx(.roboto_mono, .sm, self.content.items[selection.at + selection.len ..], main.theme.text);
                     },
 
@@ -291,9 +323,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         const left = @min(from_to.from, from_to.to);
                         const right = @max(from_to.from, from_to.to);
                         main.textEx(.roboto_mono, .sm, self.content.items[0..left], main.theme.text);
-                        clay.ui()(.{ .rectangle = .{ .color = main.theme.sapphire } })({
-                            main.textEx(.roboto_mono, .sm, self.content.items[left..right], main.theme.text);
-                        });
+                        highlighted(self.content.items[left..right]);
                         main.textEx(.roboto_mono, .sm, self.content.items[right..], main.theme.text);
                     },
                 }
