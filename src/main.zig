@@ -101,6 +101,10 @@ pub fn pointer() void {
     if (clay.hovered()) cursor = .pointing_hand;
 }
 
+pub fn ibeam() void {
+    if (clay.hovered()) cursor = .ibeam;
+}
+
 // can't use clay.getElementData until it's patched
 extern fn Clay_GetElementData(id: clay.external_typedefs.ElementConfig.Id) clay.Element.Data;
 pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
@@ -194,7 +198,7 @@ pub fn main() !void {
 fn frame(model: *Model) void {
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
     clay.setPointerState(convertVector(rl.getMousePosition()), rl.isMouseButtonDown(.left));
-    clay.updateScrollContainers(true, convertVector(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 5)), rl.getFrameTime());
+    clay.updateScrollContainers(false, convertVector(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 5)), rl.getFrameTime());
 
     model.update(Input.read()) catch |err| alert.update(err);
 
