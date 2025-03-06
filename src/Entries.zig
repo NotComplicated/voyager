@@ -336,13 +336,11 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
         }
     } else if (input.action) |action| {
         switch (action) {
-            .mouse => {},
+            .mouse, .event => {},
             .key => |key| switch (key) {
                 .char => |char| entries.jump(char),
                 else => {},
             },
-            .copy => {}, // TODO
-            .paste => {},
         }
     } else {
         if (tooltip.update(input)) |writer| {

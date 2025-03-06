@@ -172,7 +172,7 @@ pub fn render(model: Model) void {
 }
 
 pub fn format(model: Model, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
-    try fmt.format(writer, "\ncwd: {s}\nentries: {}", .{ model.cwd.value(), model.entries });
+    try fmt.format(writer, "\ncwd: {}\nentries: {}", .{ model.cwd, model.entries });
 }
 
 fn openDir(model: *Model, name: []const u8) Error!void {
@@ -180,7 +180,7 @@ fn openDir(model: *Model, name: []const u8) Error!void {
 
     model.entries.loadEntries(model.cwd.value()) catch |err| switch (err) {
         Error.DirAccessDenied, Error.OpenDirFailure => {
-            model.cwd.popPath();
+            try model.cwd.popPath();
             return err;
         },
         else => return err,
@@ -188,7 +188,7 @@ fn openDir(model: *Model, name: []const u8) Error!void {
 }
 
 fn openParentDir(model: *Model) Error!void {
-    model.cwd.popPath();
+    try model.cwd.popPath();
     try model.entries.loadEntries(model.cwd.value());
 }
 

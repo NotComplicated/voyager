@@ -2,6 +2,7 @@ const std = @import("std");
 const ascii = std.ascii;
 const meta = std.meta;
 const time = std.time;
+const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -20,8 +21,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         timer: u32,
         history: std.BoundedArray(struct { content: std.ArrayListUnmanaged(u8), cursor: Cursor }, max_history),
 
-        const max_history = 8;
-        const max_paste_len = 1024;
+        const max_history = 16;
+        const max_len = if (kind == .path) 512 else 2048;
+        const max_paste_len = if (kind == .path) 512 else 1024;
         const char_px_width = 9;
         const ibeam_x_offset = 2;
         const ibeam_y_offset = -2;
@@ -75,7 +77,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             for (text_box.history.unusedCapacitySlice()) |*hist| {
                 hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = .none };
             }
-            text_box.history.resize(1) catch {};
+            text_box.history.len = 1;
 
             return text_box;
         }
@@ -87,29 +89,21 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         }
 
         pub fn update(self: *Self, input: Input) Model.Error!?Message {
-            var contents_updated = self.cursor != .none and input.action != null and meta.activeTag(input.action.?) == .key;
-            const maybe_message = try self.handleInput(input, &contents_updated);
+            var maybe_updated = self.cursor != .none and
+                input.action != null and
+                meta.activeTag(input.action.?) != .mouse;
 
-            if (input.action) |action| switch (action) {
-                .key => |key| switch (key) {
-                    .char => |c| std.log.debug("{c}", .{c}),
-                    else => {},
-                },
-                else => {},
-            };
+            self.timer +|= input.delta_ms;
+            self.history.slice()[self.history.len - 1].cursor = self.cursor;
+            const maybe_message = try self.handleInput(input, &maybe_updated);
+            if (self.value().len > max_len) {
+                self.content.items.len = max_len;
+                self.fixCursor();
+            }
 
-            if (contents_updated) {
+            if (maybe_updated) {
                 self.timer = 0;
-                const prev_hist = &self.history.slice()[self.history.len - 1];
-                if (!mem.eql(u8, self.value(), prev_hist.content.items)) {
-                    const next_hist = self.history.addOne() catch rotate: {
-                        mem.rotate(meta.Elem(@TypeOf(self.history.slice())), self.history.slice(), 1);
-                        break :rotate &self.history.slice()[self.history.len - 1];
-                    };
-                    next_hist.content.clearRetainingCapacity();
-                    try next_hist.content.appendSlice(main.alloc, self.value());
-                    next_hist.cursor = self.cursor;
-                }
+                try self.updateHistory();
             }
 
             if (maybe_message) |message| {
@@ -122,6 +116,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         defer main.alloc.free(realpath);
                         self.content.clearRetainingCapacity();
                         try self.content.appendSlice(main.alloc, realpath);
+                        self.fixCursor();
+                        try self.updateHistory();
                     },
                 }
             }
@@ -129,9 +125,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return maybe_message;
         }
 
-        fn handleInput(self: *Self, input: Input, contents_updated: *bool) Model.Error!?Message {
-            self.timer +|= input.delta_ms;
-
+        fn handleInput(self: *Self, input: Input, maybe_updated: *bool) Model.Error!?Message {
             switch (self.cursor) {
                 .none => if (input.clicked(.left) and clay.pointerOver(id)) {
                     if (self.mouseAt(input.mouse_pos)) |at| {
@@ -164,10 +158,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                         'v' => try self.paste(index, 0),
                                         'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
                                         'z' => {
-                                            contents_updated.* = false;
+                                            maybe_updated.* = false;
+                                            try self.undo();
                                         },
                                         'y' => {
-                                            contents_updated.* = false;
+                                            maybe_updated.* = false;
+                                            try self.redo();
                                         },
                                         else => {},
                                     }
@@ -224,9 +220,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             },
                         },
 
-                        .copy => {},
-
-                        .paste => try self.paste(index, 0),
+                        .event => |event| if (main.windows) switch (event) {
+                            .copy => {},
+                            .paste => try self.paste(index, 0),
+                        },
                     }
                 },
 
@@ -240,6 +237,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                     self.cursor = .{ .select = .{ .from = at, .to = at } };
                                 }
                             }
+                        } else {
+                            self.cursor = .none;
                         },
                         .down => if (self.mouseAt(input.mouse_pos)) |at| {
                             if (self.timer > select_all_delay) self.cursor.select.to = at;
@@ -261,10 +260,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                     'v' => try self.paste(selection.left(), selection.len()),
                                     'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
                                     'z' => {
-                                        contents_updated.* = false;
+                                        maybe_updated.* = false;
+                                        try self.undo();
                                     },
                                     'y' => {
-                                        contents_updated.* = false;
+                                        maybe_updated.* = false;
+                                        try self.redo();
                                     },
                                     else => {},
                                 }
@@ -324,9 +325,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         },
                     },
 
-                    .copy => try self.copy(selection),
-
-                    .paste => try self.paste(selection.left(), selection.len()),
+                    .event => |event| if (main.windows) switch (event) {
+                        .copy => try self.copy(selection),
+                        .paste => try self.paste(selection.left(), selection.len()),
+                    },
                 },
             }
 
@@ -429,10 +431,64 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return self.content.items;
         }
 
-        pub fn popPath(self: *Self) void {
+        pub fn popPath(self: *Self) Model.Error!void {
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
             self.content.shrinkRetainingCapacity(parent_dir_path.len);
+            self.fixCursor();
+            try self.updateHistory();
+        }
+
+        pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
+            if (kind != .path) @compileError("appendPath only works on paths");
+            try self.content.append(main.alloc, fs.path.sep);
+            try self.content.appendSlice(main.alloc, entry_name);
+            if (self.value().len > max_len) {
+                self.content.items.len = max_len;
+                self.fixCursor();
+            }
+            try self.updateHistory();
+        }
+
+        pub fn format(self: Self, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+            try fmt.format(writer, "value: {s}\n", .{self.value()});
+            switch (self.cursor) {
+                .none => {},
+                .at => |index| try fmt.format(writer, "at: {}\n", .{index}),
+                .select => |selection| try fmt.format(
+                    writer,
+                    "from: {} to: {}\n",
+                    .{ selection.from, selection.to },
+                ),
+            }
+            try fmt.format(writer, "History:\n", .{});
+            for (self.history.constSlice(), 0..) |hist, i| {
+                try fmt.format(writer, "{}) value: {s}\n", .{ i, hist.content.items });
+                switch (hist.cursor) {
+                    .none => {},
+                    .at => |index| try fmt.format(writer, "{}) at: {}\n", .{ i, index }),
+                    .select => |selection| try fmt.format(
+                        writer,
+                        "{}) from: {} to: {}\n",
+                        .{ i, selection.from, selection.to },
+                    ),
+                }
+            }
+        }
+
+        fn updateHistory(self: *Self) Model.Error!void {
+            if (!mem.eql(u8, self.value(), self.history.get(self.history.len - 1).content.items)) {
+                const next_hist = self.history.addOne() catch rotate: {
+                    mem.rotate(meta.Elem(@TypeOf(self.history.slice())), self.history.slice(), 1);
+                    break :rotate &self.history.slice()[self.history.len - 1];
+                };
+                next_hist.content.clearRetainingCapacity();
+                try next_hist.content.appendSlice(main.alloc, self.value());
+                next_hist.cursor = self.cursor;
+            }
+        }
+
+        fn fixCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
                 .at => |*index| index.* = @min(index.*, self.value().len),
@@ -442,12 +498,6 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     if (selection.from == selection.to) self.cursor = .{ .at = selection.from };
                 },
             }
-        }
-
-        pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
-            if (kind != .path) @compileError("appendPath only works on paths");
-            try self.content.append(main.alloc, fs.path.sep);
-            return self.content.appendSlice(main.alloc, entry_name);
         }
 
         fn removeCursor(self: *Self) void {
@@ -502,6 +552,23 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 }
                 self.cursor = .{ .at = index + clipboard.len };
             }
+        }
+
+        fn undo(self: *Self) Model.Error!void {
+            if (self.history.len > 1) {
+                self.history.len -= 1;
+                const prev = self.history.get(self.history.len - 1);
+                self.content.clearRetainingCapacity();
+                try self.content.appendSlice(main.alloc, prev.content.items);
+                self.cursor = prev.cursor;
+            }
+        }
+
+        fn redo(self: *Self) Model.Error!void {
+            const next = self.history.addOne() catch return;
+            self.content.clearRetainingCapacity();
+            try self.content.appendSlice(main.alloc, next.content.items);
+            self.cursor = next.cursor;
         }
 
         fn mouseAt(self: Self, mouse_pos: clay.Vector2) ?usize {

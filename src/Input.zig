@@ -31,8 +31,7 @@ action: ?union(enum) {
         left,
         right,
     },
-    copy,
-    paste,
+    event: if (main.windows) WinEvent else noreturn,
 },
 delta_ms: u32,
 shift: bool,
@@ -40,14 +39,19 @@ ctrl: bool,
 
 const Input = @This();
 
+const WinEvent = enum {
+    copy,
+    paste,
+};
+
 var maybe_prev_key: ?struct { key: rl.KeyboardKey, timer: i64 } = null;
 const hold_down_init_delay = 400;
 const hold_down_repeat_delay = 50;
 
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
-const copy_char = 'C' - 64;
-const paste_char = 'V' - 64;
+const copy_char = 'C' - 0x40;
+const paste_char = 'V' - 0x40;
 const WNDPROC = @TypeOf(&newWindowProc);
 extern fn SetWindowLongPtrW(
     wnd: os.windows.HWND,
@@ -67,7 +71,7 @@ extern fn CallWindowProcW(
 ) os.windows.LRESULT;
 
 var oldWindowProc: ?WNDPROC = null;
-var windows_action: meta.FieldType(Input, .action) = null;
+var maybe_windows_event: ?WinEvent = null;
 
 fn newWindowProc(
     handle: os.windows.HWND,
@@ -77,8 +81,8 @@ fn newWindowProc(
 ) callconv(.C) os.windows.LRESULT {
     switch (message) {
         wm_char => switch (wparam) {
-            copy_char => windows_action = .copy,
-            paste_char => windows_action = .paste,
+            copy_char => maybe_windows_event = .copy,
+            paste_char => maybe_windows_event = .paste,
             else => {},
         },
         else => {},
@@ -104,9 +108,9 @@ pub fn read() Input {
     };
 
     if (main.windows) {
-        if (windows_action) |action| {
-            input.action = action;
-            windows_action = null;
+        if (maybe_windows_event) |windows_event| {
+            input.action = .{ .event = windows_event };
+            maybe_windows_event = null;
             return input;
         }
     }
