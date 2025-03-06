@@ -359,15 +359,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 main.ibeam();
 
                 switch (self.cursor) {
-                    .none => {
-                        // TODO special rendering for paths?
-                        main.textEx(
-                            .roboto_mono,
-                            .sm,
-                            self.content.items,
-                            main.theme.text,
-                        );
-                    },
+                    .none => main.textEx(.roboto_mono, .sm, self.content.items, main.theme.text),
 
                     .at => |index| {
                         main.textEx(
@@ -565,6 +557,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 self.content.clearRetainingCapacity();
                 try self.content.appendSlice(main.alloc, prev.content.items);
                 self.cursor = prev.cursor;
+                if (self.cursor == .none) {
+                    self.cursor = .{ .at = self.value().len };
+                }
             }
         }
 
@@ -573,6 +568,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             self.content.clearRetainingCapacity();
             try self.content.appendSlice(main.alloc, next.content.items);
             self.cursor = next.cursor;
+            if (self.cursor == .none) {
+                self.cursor = .{ .at = self.value().len };
+            }
         }
 
         fn mouseAt(self: Self, mouse_pos: clay.Vector2) ?usize {
