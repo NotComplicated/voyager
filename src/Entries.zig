@@ -172,10 +172,12 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     };
 }
 
-var file_types = std.StaticStringMapWithEql([]const u8, std.static_string_map.eqlAsciiIgnoreCase).initComptime(extensions.data);
+var file_types = std.StaticStringMapWithEql(
+    []const u8,
+    std.static_string_map.eqlAsciiIgnoreCase,
+).initComptime(extensions.data);
 
 const container_id = main.newId("EntriesContainer");
-const double_click_delay = 300;
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
 const entries_px_offset = 455; // TODO this includes shortcut width
@@ -216,7 +218,7 @@ const TIME_ZONE_INFORMATION = extern struct {
     DaylightDate: SYSTEMTIME,
     DaylightBias: os.windows.LONG,
 };
-extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) std.os.windows.DWORD;
+extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) os.windows.DWORD;
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -341,7 +343,7 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
             },
         }
     } else {
-        if (tooltip.update(input.mouse_pos)) |writer| {
+        if (tooltip.update(input)) |writer| {
             inline for (comptime kinds()) |kind| {
                 var sorted_iter = entries.sorted(kind, &.{});
                 var sorted_index: Index = 0;
@@ -791,7 +793,7 @@ fn select(entries: *Entries, kind: Kind, index: Index, clicked: bool, select_typ
 
     const now = time.milliTimestamp();
     if (selected[index]) |selected_ts| {
-        if (clicked and (now - selected_ts) < double_click_delay) {
+        if (clicked and (now - selected_ts) < main.double_click_delay) {
             const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
             const name = entries.names.items[name_start..name_end];
             return switch (kind) {

@@ -25,12 +25,15 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         const max_history = 8;
         const max_paste_len = 1024;
         const char_px_width = 9;
+        const ibeam_x_offset = 2;
+        const ibeam_y_offset = -2;
+        const ibeam_blink_interval = 600;
 
         const Self = @This();
 
         const Cursor = union(enum) {
             none,
-            at: usize,
+            at: struct { index: usize, timer: u32 = 0 },
             select: Selection,
         };
 
@@ -84,10 +87,14 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         }
 
         pub fn update(self: *Self, input: Input) Model.Error!?Message {
-            var update_hist = self.cursor != .none and input.action != null and meta.activeTag(input.action.?) == .key;
-            const maybe_message = try self.handleInput(input, &update_hist);
+            var contents_updated = self.cursor != .none and input.action != null and meta.activeTag(input.action.?) == .key;
+            const maybe_message = try self.handleInput(input, &contents_updated);
 
-            if (update_hist) {
+            if (contents_updated) {
+                switch (self.cursor) {
+                    .at => |*cursor| cursor.timer = 0,
+                    else => {},
+                }
                 const prev_hist = &self.history.slice()[self.history.len - 1];
                 if (!mem.eql(u8, self.value(), prev_hist.content.items)) {
                     const next_hist = self.history.addOne() catch rotate: {
@@ -100,10 +107,24 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 }
             }
 
+            if (maybe_message) |message| {
+                switch (message) {
+                    .submit => |path| {
+                        const realpath = fs.realpathAlloc(main.alloc, path) catch |err| return switch (err) {
+                            error.OutOfMemory => Model.Error.OutOfMemory,
+                            else => Model.Error.OpenDirFailure,
+                        };
+                        defer main.alloc.free(realpath);
+                        self.content.clearRetainingCapacity();
+                        try self.content.appendSlice(main.alloc, realpath);
+                    },
+                }
+            }
+
             return maybe_message;
         }
 
-        fn handleInput(self: *Self, input: Input, update_hist: *bool) Model.Error!?Message {
+        fn handleInput(self: *Self, input: Input, contents_updated: *bool) Model.Error!?Message {
             switch (self.cursor) {
                 .none => if (input.clicked(.left) and clay.pointerOver(id)) {
                     if (self.mouseAt(input.mouse_pos)) |at| {
@@ -111,85 +132,95 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     }
                 },
 
-                .at => |index| switch (input.action orelse return null) {
-                    .mouse => if (input.clicked(.left)) {
-                        if (clay.pointerOver(id)) {
-                            if (self.mouseAt(input.mouse_pos)) |at| {
-                                self.cursor = .{ .select = .{
-                                    .from = if (input.shift) index else at,
-                                    .to = at,
-                                } };
-                            }
-                        } else {
-                            self.cursor = .none;
-                        }
-                    },
+                .at => |*cursor| {
+                    cursor.timer += input.delta_ms;
 
-                    .key => |key| switch (key) {
-                        .char => |char| {
-                            if (input.ctrl) {
-                                switch (char) {
-                                    'v' => if (getClipboard()) |clipboard| {
-                                        try self.content.insertSlice(main.alloc, index, clipboard);
-                                        self.cursor.at += clipboard.len;
-                                    },
-                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
-                                    'z' => update_hist.* = false,
-                                    'y' => update_hist.* = false,
-                                    else => {},
+                    switch (input.action orelse return null) {
+                        .mouse => if (input.clicked(.left)) {
+                            if (clay.pointerOver(id)) {
+                                if (self.mouseAt(input.mouse_pos)) |at| {
+                                    self.cursor = .{
+                                        .select = if (at == cursor.index and cursor.timer < main.double_click_delay)
+                                            .{ .from = 0, .to = self.value().len }
+                                        else
+                                            .{ .from = if (input.shift) cursor.index else at, .to = at },
+                                    };
                                 }
                             } else {
-                                try self.content.insert(main.alloc, index, char);
-                                self.cursor.at += 1;
+                                self.cursor = .none;
                             }
                         },
 
-                        .delete => if (index < self.value().len)
-                            if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
+                        .key => |key| switch (key) {
+                            .char => |char| {
+                                if (input.ctrl) {
+                                    switch (char) {
+                                        'v' => if (getClipboard()) |clipboard| {
+                                            try self.content.insertSlice(main.alloc, cursor.index, clipboard);
+                                            self.cursor.at.index += clipboard.len;
+                                        },
+                                        'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
+                                        'z' => {
+                                            contents_updated.* = false;
+                                        },
+                                        'y' => {
+                                            contents_updated.* = false;
+                                        },
+                                        else => {},
+                                    }
+                                } else {
+                                    try self.content.insert(main.alloc, cursor.index, char);
+                                    cursor.index += 1;
+                                }
+                            },
 
-                        .backspace => if (input.ctrl)
-                            self.removeCursorToPrevSep()
-                        else if (index > 0) {
-                            self.cursor.at -= 1;
-                            self.removeCursor();
+                            .delete => if (cursor.index < self.value().len)
+                                if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
+
+                            .backspace => if (input.ctrl)
+                                self.removeCursorToPrevSep()
+                            else if (cursor.index > 0) {
+                                cursor.index -= 1;
+                                self.removeCursor();
+                            },
+
+                            .escape, .tab => self.cursor = .none,
+
+                            .enter => return .{ .submit = self.value() },
+
+                            .up, .home => self.cursor = if (input.shift)
+                                .{ .select = .{ .from = cursor.index, .to = 0 } }
+                            else
+                                .{ .at = .{ .index = 0 } },
+
+                            .down, .end => self.cursor = if (input.shift)
+                                .{ .select = .{ .from = cursor.index, .to = self.value().len } }
+                            else
+                                .{ .at = .{ .index = self.value().len } },
+
+                            .left => {
+                                const dest = if (input.ctrl)
+                                    toPrevSep(self.value(), cursor.index)
+                                else
+                                    cursor.index -| 1;
+                                self.cursor = if (input.shift)
+                                    .{ .select = .{ .from = cursor.index, .to = dest } }
+                                else
+                                    .{ .at = .{ .index = dest } };
+                            },
+
+                            .right => {
+                                const dest = if (input.ctrl)
+                                    toNextSep(self.value(), cursor.index)
+                                else
+                                    cursor.index + @intFromBool(cursor.index < self.value().len);
+                                self.cursor = if (input.shift)
+                                    .{ .select = .{ .from = cursor.index, .to = dest } }
+                                else
+                                    .{ .at = .{ .index = dest } };
+                            },
                         },
-
-                        .escape, .tab => self.cursor = .none,
-
-                        .enter => return .{ .submit = self.value() },
-
-                        .up, .home => self.cursor = if (input.shift)
-                            .{ .select = .{ .from = index, .to = 0 } }
-                        else
-                            .{ .at = 0 },
-
-                        .down, .end => self.cursor = if (input.shift)
-                            .{ .select = .{ .from = index, .to = self.value().len } }
-                        else
-                            .{ .at = self.value().len },
-
-                        .left => {
-                            const dest = if (input.ctrl)
-                                toPrevSep(self.value(), index)
-                            else
-                                index -| 1;
-                            self.cursor = if (input.shift)
-                                .{ .select = .{ .from = index, .to = dest } }
-                            else
-                                .{ .at = dest };
-                        },
-
-                        .right => {
-                            const dest = if (input.ctrl)
-                                toNextSep(self.value(), index)
-                            else
-                                index + @intFromBool(index < self.value().len);
-                            self.cursor = if (input.shift)
-                                .{ .select = .{ .from = index, .to = dest } }
-                            else
-                                .{ .at = dest };
-                        },
-                    },
+                    }
                 },
 
                 .select => |selection| switch (input.action orelse return null) {
@@ -204,10 +235,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             }
                         },
                         .down => if (self.mouseAt(input.mouse_pos)) |at| {
-                            self.cursor.select.to = at;
+                            self.cursor.select.to = at; // TODO check if double-clicked
                         },
                         .released => if (selection.from == selection.to) {
-                            self.cursor = .{ .at = selection.from };
+                            self.cursor = .{ .at = .{ .index = selection.from } };
                         },
                     },
 
@@ -227,11 +258,15 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                             selection.len(),
                                             clipboard,
                                         );
-                                        self.cursor = .{ .at = selection.right() };
+                                        self.cursor = .{ .at = .{ .index = selection.right() } };
                                     },
                                     'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
-                                    'z' => update_hist.* = false,
-                                    'y' => update_hist.* = false,
+                                    'z' => {
+                                        contents_updated.* = false;
+                                    },
+                                    'y' => {
+                                        contents_updated.* = false;
+                                    },
                                     else => {},
                                 }
                             } else {
@@ -241,7 +276,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                     selection.len(),
                                     &.{char},
                                 );
-                                self.cursor = .{ .at = selection.left() + 1 };
+                                self.cursor = .{ .at = .{ .index = selection.left() + 1 } };
                             }
                         },
 
@@ -254,12 +289,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         .up, .home => self.cursor = if (input.shift)
                             .{ .select = .{ .from = selection.right(), .to = 0 } }
                         else
-                            .{ .at = 0 },
+                            .{ .at = .{ .index = 0 } },
 
                         .down, .end => self.cursor = if (input.shift)
                             .{ .select = .{ .from = selection.left(), .to = self.value().len } }
                         else
-                            .{ .at = self.value().len },
+                            .{ .at = .{ .index = self.value().len } },
 
                         .left => if (input.shift) {
                             const dest = if (input.ctrl)
@@ -267,12 +302,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             else
                                 selection.to -| 1;
                             if (dest == selection.from) {
-                                self.cursor = .{ .at = dest };
+                                self.cursor = .{ .at = .{ .index = dest } };
                             } else {
                                 self.cursor.select.to = dest;
                             }
                         } else {
-                            self.cursor = .{ .at = selection.left() };
+                            self.cursor = .{ .at = .{ .index = selection.left() } };
                         },
 
                         .right => if (input.shift) {
@@ -281,12 +316,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             else
                                 selection.to + @intFromBool(selection.to < self.value().len);
                             if (dest == selection.from) {
-                                self.cursor = .{ .at = dest };
+                                self.cursor = .{ .at = .{ .index = dest } };
                             } else {
                                 self.cursor.select.to = dest;
                             }
                         } else {
-                            self.cursor = .{ .at = selection.right() };
+                            self.cursor = .{ .at = .{ .index = selection.right() } };
                         },
                     },
                 },
@@ -325,31 +360,36 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         );
                     },
 
-                    .at => |index| {
+                    .at => |cursor| {
                         main.textEx(
                             .roboto_mono,
                             .sm,
-                            self.content.items[0..index],
+                            self.content.items[0..cursor.index],
                             main.theme.text,
                         );
-                        clay.ui()(.{
-                            .floating = .{
-                                .offset = .{ .x = @floatFromInt(index * 9), .y = -2 },
-                                .attachment = .{ .element = .left_center, .parent = .left_center },
-                                .pointer_capture_mode = .passthrough,
-                            },
-                        })({
-                            main.textEx(
-                                .roboto_mono,
-                                .md,
-                                "|",
-                                main.theme.bright_text,
-                            );
-                        });
+                        if ((cursor.timer / ibeam_blink_interval) % 2 == 0) {
+                            clay.ui()(.{
+                                .floating = .{
+                                    .offset = .{
+                                        .x = @floatFromInt(cursor.index * char_px_width + ibeam_x_offset),
+                                        .y = ibeam_y_offset,
+                                    },
+                                    .attachment = .{ .element = .left_center, .parent = .left_center },
+                                    .pointer_capture_mode = .passthrough,
+                                },
+                            })({
+                                main.textEx(
+                                    .roboto_mono,
+                                    .md,
+                                    "|",
+                                    main.theme.bright_text,
+                                );
+                            });
+                        }
                         main.textEx(
                             .roboto_mono,
                             .sm,
-                            self.content.items[index..],
+                            self.content.items[cursor.index..],
                             main.theme.text,
                         );
                     },
@@ -401,10 +441,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| _ = self.content.orderedRemove(index),
+                .at => |cursor| _ = self.content.orderedRemove(cursor.index),
                 .select => |selection| {
                     self.content.replaceRangeAssumeCapacity(selection.left(), selection.len(), "");
-                    self.cursor = .{ .at = selection.left() };
+                    self.cursor = .{ .at = .{ .index = selection.left() } };
                 },
             }
         }
@@ -412,9 +452,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursorToNextSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| self.content.replaceRangeAssumeCapacity(
-                    index,
-                    toNextSep(self.value(), index) - index,
+                .at => |cursor| self.content.replaceRangeAssumeCapacity(
+                    cursor.index,
+                    toNextSep(self.value(), cursor.index) - cursor.index,
                     "",
                 ),
                 .select => self.removeCursor(),
@@ -424,10 +464,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursorToPrevSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| {
-                    const prev = toPrevSep(self.value(), index);
-                    self.content.replaceRangeAssumeCapacity(prev, index - prev, "");
-                    self.cursor.at = prev;
+                .at => |cursor| {
+                    const prev = toPrevSep(self.value(), cursor.index);
+                    self.content.replaceRangeAssumeCapacity(prev, cursor.index - prev, "");
+                    self.cursor.at.index = prev;
                 },
                 .select => self.removeCursor(),
             }

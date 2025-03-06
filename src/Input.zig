@@ -3,6 +3,7 @@ const ascii = std.ascii;
 const enums = std.enums;
 const meta = std.meta;
 const time = std.time;
+const mem = std.mem;
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -30,15 +31,13 @@ action: ?union(enum) {
         right,
     },
 },
+delta_ms: u32,
 shift: bool,
 ctrl: bool,
 
 const Input = @This();
 
-var maybe_prev_key: ?struct {
-    key: rl.KeyboardKey,
-    timer: union(enum) { start: i64, repeat: i64 },
-} = null;
+var maybe_prev_key: ?struct { key: rl.KeyboardKey, timer: i64 } = null;
 const hold_down_init_delay = 400;
 const hold_down_repeat_delay = 50;
 
@@ -46,6 +45,7 @@ pub fn read() Input {
     const mouse_pos = main.convertVector(rl.getMousePosition());
     const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
     const ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control);
+    const delta_ms: u32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
 
     for (enums.values(rl.MouseButton)) |button| {
         return .{
@@ -61,6 +61,7 @@ pub fn read() Input {
                     continue,
                 .button = button,
             } },
+            .delta_ms = delta_ms,
             .shift = shift,
             .ctrl = ctrl,
         };
@@ -71,22 +72,18 @@ pub fn read() Input {
         const null_action_input = .{
             .mouse_pos = mouse_pos,
             .action = null,
+            .delta_ms = delta_ms,
             .shift = shift,
             .ctrl = ctrl,
         };
         if (maybe_prev_key) |*prev_key| {
             if (rl.isKeyDown(prev_key.key)) {
-                const now = time.milliTimestamp();
-                prev_key.timer = switch (prev_key.timer) {
-                    .start => |timer| if (now - timer > hold_down_init_delay)
-                        .{ .repeat = now }
-                    else
-                        return null_action_input,
-                    .repeat => |timer| if (now - timer > hold_down_repeat_delay)
-                        .{ .repeat = now }
-                    else
-                        return null_action_input,
-                };
+                prev_key.timer -= delta_ms;
+                if (prev_key.timer <= 0) {
+                    prev_key.timer = hold_down_repeat_delay;
+                } else {
+                    return null_action_input;
+                }
             } else {
                 maybe_prev_key = null;
                 return null_action_input;
@@ -97,11 +94,8 @@ pub fn read() Input {
         }
     }
     const modifiers = [_]rl.KeyboardKey{ .left_shift, .right_shift, .left_control, .right_control };
-    if (maybe_prev_key == null and std.mem.indexOfScalar(rl.KeyboardKey, &modifiers, key) == null) {
-        maybe_prev_key = .{
-            .key = key,
-            .timer = @TypeOf(maybe_prev_key.?.timer){ .start = time.milliTimestamp() },
-        };
+    if (maybe_prev_key == null and mem.indexOfScalar(rl.KeyboardKey, &modifiers, key) == null) {
+        maybe_prev_key = .{ .key = key, .timer = hold_down_init_delay };
     }
 
     const key_int = @intFromEnum(key);
@@ -181,6 +175,7 @@ pub fn read() Input {
             .right => .{ .key = .right },
             else => null,
         },
+        .delta_ms = delta_ms,
         .shift = shift,
         .ctrl = ctrl,
     };

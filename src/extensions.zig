@@ -1841,7 +1841,7 @@ pub const data = .{
     },
     .{
         "PDB",
-        "debugging data",
+        "Debugging data",
     },
     .{
         "PDE",

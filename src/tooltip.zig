@@ -7,6 +7,7 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
 const tooltip_duration = 500;
@@ -15,7 +16,7 @@ const offset = clay.Vector2{ .x = 16, .y = 20 };
 var tooltip: struct {
     state: union(enum) {
         disabled,
-        delay: struct { timer: i32, pos: clay.Vector2 },
+        delay: struct { timer: u32, pos: clay.Vector2 },
         enabled: struct { pos: clay.Vector2 },
     },
     msg: std.ArrayListUnmanaged(u8),
@@ -28,24 +29,23 @@ pub fn deinit() void {
     tooltip.msg.deinit(main.alloc);
 }
 
-pub fn update(pos: clay.Vector2) ?@TypeOf(tooltip.msg.writer(undefined)) {
-    const reset = @TypeOf(tooltip.state){ .delay = .{ .timer = tooltip_duration, .pos = pos } };
+pub fn update(input: Input) ?@TypeOf(tooltip.msg.writer(undefined)) {
+    const reset = @TypeOf(tooltip.state){ .delay = .{ .timer = 0, .pos = input.mouse_pos } };
     switch (tooltip.state) {
         .disabled => {
             tooltip.state = reset;
         },
-        .delay => |state| if (meta.eql(state.pos, pos)) {
-            const delta_ms: i32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
-            tooltip.state.delay.timer -= delta_ms;
-            if (tooltip.state.delay.timer <= 0) {
-                tooltip.state = @TypeOf(tooltip.state){ .enabled = .{ .pos = pos } };
+        .delay => |state| if (meta.eql(state.pos, input.mouse_pos)) {
+            tooltip.state.delay.timer +|= input.delta_ms;
+            if (tooltip.state.delay.timer > tooltip_duration) {
+                tooltip.state = @TypeOf(tooltip.state){ .enabled = .{ .pos = input.mouse_pos } };
                 tooltip.msg.clearRetainingCapacity();
                 return tooltip.msg.writer(main.alloc);
             }
         } else {
             tooltip.state = reset;
         },
-        .enabled => |state| if (!meta.eql(state.pos, pos)) {
+        .enabled => |state| if (!meta.eql(state.pos, input.mouse_pos)) {
             tooltip.state = reset;
         },
     }

@@ -41,6 +41,8 @@ const rl_config = rl.ConfigFlags{
     .msaa_4x_hint = true,
 };
 
+pub const double_click_delay = 300;
+
 fn rgb(r: u8, g: u8, b: u8) clay.Color {
     return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
 }

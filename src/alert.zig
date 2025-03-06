@@ -13,7 +13,7 @@ const error_duration = 1_500;
 const error_fade_duration = 300;
 const unexpected_error = "Unexpected Error";
 
-var alert: struct { timer: u32, msg: std.ArrayListUnmanaged(u8) } = .{ .timer = 0, .msg = .{} };
+var alert: struct { timer: ?u32, msg: std.ArrayListUnmanaged(u8) } = .{ .timer = null, .msg = .{} };
 
 pub fn deinit() void {
     alert.msg.deinit(main.alloc);
@@ -21,7 +21,7 @@ pub fn deinit() void {
 
 pub fn update(err: anyerror) void {
     if (err == error.OutOfMemory) process.abort();
-    alert.timer = error_duration;
+    alert.timer = 0;
     alert.msg.clearRetainingCapacity();
     var writer = alert.msg.writer(main.alloc);
     switch (err) {
@@ -44,47 +44,52 @@ pub fn update(err: anyerror) void {
 }
 
 pub fn updateFmt(comptime format: []const u8, args: anytype) void {
-    alert.timer = error_duration;
+    alert.timer = 0;
     alert.msg.clearRetainingCapacity();
     alert.msg.writer(main.alloc).print("Error: " ++ format, args) catch
         alert.msg.appendSlice(main.alloc, unexpected_error) catch process.abort();
 }
 
 pub inline fn updateClay(err_data: clay.Error.Data) void {
-    alert.timer = error_duration;
+    alert.timer = 0;
     alert.msg.clearRetainingCapacity();
     alert.msg.appendSlice(main.alloc, "Error: ") catch process.abort();
     alert.msg.appendSlice(main.alloc, err_data.error_text) catch process.abort();
 }
 
 pub fn render() void {
-    const delta_ms: u32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
-    if (alert.timer < delta_ms) return;
-    alert.timer -= delta_ms;
+    if (alert.timer) |*timer| {
+        const delta_ms: u32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
+        timer.* +|= delta_ms;
+        if (timer.* > error_duration) {
+            alert.timer = null;
+            return;
+        }
 
-    var alpha: f32 = 1;
-    if (alert.timer < error_fade_duration) {
-        alpha = @as(f32, @floatFromInt(alert.timer)) / @as(f32, @floatFromInt(error_fade_duration));
+        var alpha: f32 = 1;
+        if (timer.* > error_duration - error_fade_duration) {
+            alpha = @as(f32, @floatFromInt(error_duration - timer.*)) / @as(f32, @floatFromInt(error_fade_duration));
+        }
+
+        clay.ui()(.{
+            .id = main.newId("ErrorModal"),
+            .floating = .{
+                .offset = .{ .x = -24, .y = -24 },
+                .z_index = 1,
+                .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
+                .pointer_capture_mode = .passthrough,
+            },
+            .layout = .{
+                .sizing = .{ .height = clay.Element.Sizing.Axis.fixed(60) },
+                .padding = clay.Padding.horizontal(12),
+                .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
+            },
+            .rectangle = .{
+                .color = main.opacity(main.theme.alert, alpha),
+                .corner_radius = main.rounded,
+            },
+        })({
+            main.textEx(.roboto, .md, alert.msg.items, main.opacity(main.theme.text, alpha));
+        });
     }
-
-    clay.ui()(.{
-        .id = main.newId("ErrorModal"),
-        .floating = .{
-            .offset = .{ .x = -24, .y = -24 },
-            .z_index = 1,
-            .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
-            .pointer_capture_mode = .passthrough,
-        },
-        .layout = .{
-            .sizing = .{ .height = clay.Element.Sizing.Axis.fixed(60) },
-            .padding = clay.Padding.horizontal(12),
-            .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
-        },
-        .rectangle = .{
-            .color = main.opacity(main.theme.alert, alpha),
-            .corner_radius = main.rounded,
-        },
-    })({
-        main.textEx(.roboto, .md, alert.msg.items, main.opacity(main.theme.text, alpha));
-    });
 }
