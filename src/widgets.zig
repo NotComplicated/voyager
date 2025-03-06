@@ -223,6 +223,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         .event => |event| if (main.windows) switch (event) {
                             .copy => {},
                             .paste => try self.paste(index, 0),
+                            .undo => try self.undo(),
+                            .redo => try self.redo(),
                         },
                     }
                 },
@@ -328,6 +330,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     .event => |event| if (main.windows) switch (event) {
                         .copy => try self.copy(selection),
                         .paste => try self.paste(selection.left(), selection.len()),
+                        .undo => try self.undo(),
+                        .redo => try self.redo(),
                     },
                 },
             }

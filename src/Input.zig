@@ -42,6 +42,8 @@ const Input = @This();
 const WinEvent = enum {
     copy,
     paste,
+    undo,
+    redo,
 };
 
 var maybe_prev_key: ?struct { key: rl.KeyboardKey, timer: i64 } = null;
@@ -52,6 +54,8 @@ const gwlp_wndproc = -4;
 const wm_char = 0x0102;
 const copy_char = 'C' - 0x40;
 const paste_char = 'V' - 0x40;
+const undo_char = 'Z' - 0x40;
+const redo_char = 'Y' - 0x40;
 const WNDPROC = @TypeOf(&newWindowProc);
 extern fn SetWindowLongPtrW(
     wnd: os.windows.HWND,
@@ -83,6 +87,8 @@ fn newWindowProc(
         wm_char => switch (wparam) {
             copy_char => maybe_windows_event = .copy,
             paste_char => maybe_windows_event = .paste,
+            undo_char => maybe_windows_event = .undo,
+            redo_char => maybe_windows_event = .redo,
             else => {},
         },
         else => {},
