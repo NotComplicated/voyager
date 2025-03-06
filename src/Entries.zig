@@ -341,6 +341,8 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                 .char => |char| entries.jump(char),
                 else => {},
             },
+            .copy => {}, // TODO
+            .paste => {},
         }
     } else {
         if (tooltip.update(input)) |writer| {

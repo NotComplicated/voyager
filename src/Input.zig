@@ -4,6 +4,7 @@ const enums = std.enums;
 const meta = std.meta;
 const time = std.time;
 const mem = std.mem;
+const os = std.os;
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -30,6 +31,8 @@ action: ?union(enum) {
         left,
         right,
     },
+    copy,
+    paste,
 },
 delta_ms: u32,
 shift: bool,
@@ -41,16 +44,76 @@ var maybe_prev_key: ?struct { key: rl.KeyboardKey, timer: i64 } = null;
 const hold_down_init_delay = 400;
 const hold_down_repeat_delay = 50;
 
+const gwlp_wndproc = -4;
+const wm_char = 0x0102;
+const copy_char = 'C' - 64;
+const paste_char = 'V' - 64;
+const WNDPROC = @TypeOf(&newWindowProc);
+extern fn SetWindowLongPtrW(
+    wnd: os.windows.HWND,
+    index: os.windows.INT,
+    newlong: os.windows.LONG_PTR,
+) os.windows.LONG_PTR;
+extern fn GetWindowLongPtrW(
+    wnd: os.windows.HWND,
+    index: os.windows.INT,
+) os.windows.LONG_PTR;
+extern fn CallWindowProcW(
+    lpPrevWndFunc: WNDPROC,
+    os.windows.HWND,
+    msg: os.windows.UINT,
+    wparam: os.windows.WPARAM,
+    lparam: os.windows.LPARAM,
+) os.windows.LRESULT;
+
+var oldWindowProc: ?WNDPROC = null;
+var windows_action: meta.FieldType(Input, .action) = null;
+
+fn newWindowProc(
+    handle: os.windows.HWND,
+    message: os.windows.UINT,
+    wparam: os.windows.WPARAM,
+    lparam: os.windows.LPARAM,
+) callconv(.C) os.windows.LRESULT {
+    switch (message) {
+        wm_char => switch (wparam) {
+            copy_char => windows_action = .copy,
+            paste_char => windows_action = .paste,
+            else => {},
+        },
+        else => {},
+    }
+    return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
+}
+
+pub fn init() void {
+    if (main.windows) {
+        const handle: os.windows.HWND = @ptrCast(rl.getWindowHandle());
+        oldWindowProc = @ptrFromInt(@as(usize, @intCast(GetWindowLongPtrW(handle, gwlp_wndproc))));
+        _ = SetWindowLongPtrW(handle, gwlp_wndproc, @intCast(@intFromPtr(&newWindowProc)));
+    }
+}
+
 pub fn read() Input {
-    const mouse_pos = main.convertVector(rl.getMousePosition());
-    const shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift);
-    const ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control);
-    const delta_ms: u32 = @intFromFloat(rl.getFrameTime() * time.ms_per_s);
+    var input = Input{
+        .mouse_pos = main.convertVector(rl.getMousePosition()),
+        .action = null,
+        .delta_ms = @intFromFloat(rl.getFrameTime() * time.ms_per_s),
+        .shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift),
+        .ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control),
+    };
+
+    if (main.windows) {
+        if (windows_action) |action| {
+            input.action = action;
+            windows_action = null;
+            return input;
+        }
+    }
 
     for (enums.values(rl.MouseButton)) |button| {
-        return .{
-            .mouse_pos = mouse_pos,
-            .action = .{ .mouse = .{
+        const action: @TypeOf(input.action) = .{
+            .mouse = .{
                 .state = if (rl.isMouseButtonPressed(button))
                     .pressed
                 else if (rl.isMouseButtonReleased(button))
@@ -60,38 +123,26 @@ pub fn read() Input {
                 else
                     continue,
                 .button = button,
-            } },
-            .delta_ms = delta_ms,
-            .shift = shift,
-            .ctrl = ctrl,
+            },
         };
+        input.action = action;
+        return input;
     }
 
     var key = rl.getKeyPressed();
     if (key == .null) {
-        const null_action_input = .{
-            .mouse_pos = mouse_pos,
-            .action = null,
-            .delta_ms = delta_ms,
-            .shift = shift,
-            .ctrl = ctrl,
-        };
         if (maybe_prev_key) |*prev_key| {
             if (rl.isKeyDown(prev_key.key)) {
-                prev_key.timer -= delta_ms;
+                prev_key.timer -= input.delta_ms;
                 if (prev_key.timer <= 0) {
                     prev_key.timer = hold_down_repeat_delay;
-                } else {
-                    return null_action_input;
-                }
+                } else return input;
             } else {
                 maybe_prev_key = null;
-                return null_action_input;
+                return input;
             }
             key = prev_key.key;
-        } else {
-            return null_action_input;
-        }
+        } else return input;
     }
     const modifiers = [_]rl.KeyboardKey{ .left_shift, .right_shift, .left_control, .right_control };
     if (maybe_prev_key == null and mem.indexOfScalar(rl.KeyboardKey, &modifiers, key) == null) {
@@ -123,9 +174,9 @@ pub fn read() Input {
     };
 
     const maybe_char: ?u8 = if (as_alpha) |alpha|
-        if (shift) alpha else ascii.toLower(alpha)
+        if (input.shift) alpha else ascii.toLower(alpha)
     else if (as_num) |num|
-        if (shift) switch (num) {
+        if (input.shift) switch (num) {
             '1' => '!',
             '2' => '@',
             '3' => '#',
@@ -139,7 +190,7 @@ pub fn read() Input {
             else => unreachable,
         } else num
     else if (as_punc) |punc|
-        if (shift) switch (punc) {
+        if (input.shift) switch (punc) {
             '\'' => '"',
             ',' => '<',
             '-' => '_',
@@ -157,28 +208,23 @@ pub fn read() Input {
     else
         null;
 
-    return .{
-        .mouse_pos = mouse_pos,
-        .action = if (maybe_char) |char|
-            .{ .key = .{ .char = char } }
-        else switch (key) {
-            .delete => .{ .key = .delete },
-            .backspace => .{ .key = .backspace },
-            .home => .{ .key = .home },
-            .end => .{ .key = .end },
-            .escape => .{ .key = .escape },
-            .enter => .{ .key = .enter },
-            .tab => .{ .key = .tab },
-            .up => .{ .key = .up },
-            .down => .{ .key = .down },
-            .left => .{ .key = .left },
-            .right => .{ .key = .right },
-            else => null,
-        },
-        .delta_ms = delta_ms,
-        .shift = shift,
-        .ctrl = ctrl,
+    input.action = if (maybe_char) |char|
+        .{ .key = .{ .char = char } }
+    else switch (key) {
+        .delete => .{ .key = .delete },
+        .backspace => .{ .key = .backspace },
+        .home => .{ .key = .home },
+        .end => .{ .key = .end },
+        .escape => .{ .key = .escape },
+        .enter => .{ .key = .enter },
+        .tab => .{ .key = .tab },
+        .up => .{ .key = .up },
+        .down => .{ .key = .down },
+        .left => .{ .key = .left },
+        .right => .{ .key = .right },
+        else => null,
     };
+    return input;
 }
 
 pub fn clicked(input: Input, button: rl.MouseButton) bool {

@@ -185,6 +185,8 @@ pub fn main() !void {
         );
     }
 
+    Input.init();
+
     try resources.init();
     defer resources.deinit();
 

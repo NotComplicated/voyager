@@ -17,10 +17,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
     return struct {
         content: std.ArrayListUnmanaged(u8),
         cursor: Cursor,
+        timer: u32,
         history: std.BoundedArray(struct { content: std.ArrayListUnmanaged(u8), cursor: Cursor }, max_history),
-
-        // TODO millis timer for double-click select word
-        // TODO select all when going from none -> selected w/o selecting any
 
         const max_history = 8;
         const max_paste_len = 1024;
@@ -28,12 +26,13 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         const ibeam_x_offset = 2;
         const ibeam_y_offset = -2;
         const ibeam_blink_interval = 600;
+        const select_all_delay = 150;
 
         const Self = @This();
 
         const Cursor = union(enum) {
             none,
-            at: struct { index: usize, timer: u32 = 0 },
+            at: usize,
             select: Selection,
         };
 
@@ -62,6 +61,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             var text_box = Self{
                 .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 256),
                 .cursor = .none,
+                .timer = 0,
                 .history = .{},
             };
             errdefer text_box.content.deinit(main.alloc);
@@ -90,11 +90,16 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             var contents_updated = self.cursor != .none and input.action != null and meta.activeTag(input.action.?) == .key;
             const maybe_message = try self.handleInput(input, &contents_updated);
 
-            if (contents_updated) {
-                switch (self.cursor) {
-                    .at => |*cursor| cursor.timer = 0,
+            if (input.action) |action| switch (action) {
+                .key => |key| switch (key) {
+                    .char => |c| std.log.debug("{c}", .{c}),
                     else => {},
-                }
+                },
+                else => {},
+            };
+
+            if (contents_updated) {
+                self.timer = 0;
                 const prev_hist = &self.history.slice()[self.history.len - 1];
                 if (!mem.eql(u8, self.value(), prev_hist.content.items)) {
                     const next_hist = self.history.addOne() catch rotate: {
@@ -125,6 +130,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         }
 
         fn handleInput(self: *Self, input: Input, contents_updated: *bool) Model.Error!?Message {
+            self.timer +|= input.delta_ms;
+
             switch (self.cursor) {
                 .none => if (input.clicked(.left) and clay.pointerOver(id)) {
                     if (self.mouseAt(input.mouse_pos)) |at| {
@@ -132,19 +139,18 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     }
                 },
 
-                .at => |*cursor| {
-                    cursor.timer += input.delta_ms;
-
+                .at => |index| {
                     switch (input.action orelse return null) {
                         .mouse => if (input.clicked(.left)) {
                             if (clay.pointerOver(id)) {
                                 if (self.mouseAt(input.mouse_pos)) |at| {
                                     self.cursor = .{
-                                        .select = if (at == cursor.index and cursor.timer < main.double_click_delay)
+                                        .select = if (at == index and self.timer < main.double_click_delay)
                                             .{ .from = 0, .to = self.value().len }
                                         else
-                                            .{ .from = if (input.shift) cursor.index else at, .to = at },
+                                            .{ .from = if (input.shift) index else at, .to = at },
                                     };
+                                    self.timer = 0;
                                 }
                             } else {
                                 self.cursor = .none;
@@ -155,10 +161,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             .char => |char| {
                                 if (input.ctrl) {
                                     switch (char) {
-                                        'v' => if (getClipboard()) |clipboard| {
-                                            try self.content.insertSlice(main.alloc, cursor.index, clipboard);
-                                            self.cursor.at.index += clipboard.len;
-                                        },
+                                        'v' => try self.paste(index, 0),
                                         'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
                                         'z' => {
                                             contents_updated.* = false;
@@ -169,18 +172,18 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                         else => {},
                                     }
                                 } else {
-                                    try self.content.insert(main.alloc, cursor.index, char);
-                                    cursor.index += 1;
+                                    try self.content.insert(main.alloc, index, char);
+                                    self.cursor.at += 1;
                                 }
                             },
 
-                            .delete => if (cursor.index < self.value().len)
+                            .delete => if (index < self.value().len)
                                 if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
 
                             .backspace => if (input.ctrl)
                                 self.removeCursorToPrevSep()
-                            else if (cursor.index > 0) {
-                                cursor.index -= 1;
+                            else if (index > 0) {
+                                self.cursor.at -= 1;
                                 self.removeCursor();
                             },
 
@@ -189,37 +192,41 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             .enter => return .{ .submit = self.value() },
 
                             .up, .home => self.cursor = if (input.shift)
-                                .{ .select = .{ .from = cursor.index, .to = 0 } }
+                                .{ .select = .{ .from = index, .to = 0 } }
                             else
-                                .{ .at = .{ .index = 0 } },
+                                .{ .at = 0 },
 
                             .down, .end => self.cursor = if (input.shift)
-                                .{ .select = .{ .from = cursor.index, .to = self.value().len } }
+                                .{ .select = .{ .from = index, .to = self.value().len } }
                             else
-                                .{ .at = .{ .index = self.value().len } },
+                                .{ .at = self.value().len },
 
                             .left => {
                                 const dest = if (input.ctrl)
-                                    toPrevSep(self.value(), cursor.index)
+                                    toPrevSep(self.value(), index)
                                 else
-                                    cursor.index -| 1;
+                                    index -| 1;
                                 self.cursor = if (input.shift)
-                                    .{ .select = .{ .from = cursor.index, .to = dest } }
+                                    .{ .select = .{ .from = index, .to = dest } }
                                 else
-                                    .{ .at = .{ .index = dest } };
+                                    .{ .at = dest };
                             },
 
                             .right => {
                                 const dest = if (input.ctrl)
-                                    toNextSep(self.value(), cursor.index)
+                                    toNextSep(self.value(), index)
                                 else
-                                    cursor.index + @intFromBool(cursor.index < self.value().len);
+                                    index + @intFromBool(index < self.value().len);
                                 self.cursor = if (input.shift)
-                                    .{ .select = .{ .from = cursor.index, .to = dest } }
+                                    .{ .select = .{ .from = index, .to = dest } }
                                 else
-                                    .{ .at = .{ .index = dest } };
+                                    .{ .at = dest };
                             },
                         },
+
+                        .copy => {},
+
+                        .paste => try self.paste(index, 0),
                     }
                 },
 
@@ -235,10 +242,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             }
                         },
                         .down => if (self.mouseAt(input.mouse_pos)) |at| {
-                            self.cursor.select.to = at; // TODO check if double-clicked
+                            if (self.timer > select_all_delay) self.cursor.select.to = at;
                         },
                         .released => if (selection.from == selection.to) {
-                            self.cursor = .{ .at = .{ .index = selection.from } };
+                            self.cursor = .{ .at = selection.from };
                         },
                     },
 
@@ -246,20 +253,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         .char => |char| {
                             if (input.ctrl) {
                                 switch (char) {
-                                    'c' => try self.setClipboard(selection),
+                                    'c' => try self.copy(selection),
                                     'x' => {
-                                        try self.setClipboard(selection);
+                                        try self.copy(selection);
                                         self.removeCursor();
                                     },
-                                    'v' => if (getClipboard()) |clipboard| {
-                                        try self.content.replaceRange(
-                                            main.alloc,
-                                            selection.left(),
-                                            selection.len(),
-                                            clipboard,
-                                        );
-                                        self.cursor = .{ .at = .{ .index = selection.right() } };
-                                    },
+                                    'v' => try self.paste(selection.left(), selection.len()),
                                     'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
                                     'z' => {
                                         contents_updated.* = false;
@@ -276,7 +275,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                     selection.len(),
                                     &.{char},
                                 );
-                                self.cursor = .{ .at = .{ .index = selection.left() + 1 } };
+                                self.cursor = .{ .at = selection.left() + 1 };
                             }
                         },
 
@@ -289,12 +288,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         .up, .home => self.cursor = if (input.shift)
                             .{ .select = .{ .from = selection.right(), .to = 0 } }
                         else
-                            .{ .at = .{ .index = 0 } },
+                            .{ .at = 0 },
 
                         .down, .end => self.cursor = if (input.shift)
                             .{ .select = .{ .from = selection.left(), .to = self.value().len } }
                         else
-                            .{ .at = .{ .index = self.value().len } },
+                            .{ .at = self.value().len },
 
                         .left => if (input.shift) {
                             const dest = if (input.ctrl)
@@ -302,12 +301,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             else
                                 selection.to -| 1;
                             if (dest == selection.from) {
-                                self.cursor = .{ .at = .{ .index = dest } };
+                                self.cursor = .{ .at = dest };
                             } else {
                                 self.cursor.select.to = dest;
                             }
                         } else {
-                            self.cursor = .{ .at = .{ .index = selection.left() } };
+                            self.cursor = .{ .at = selection.left() };
                         },
 
                         .right => if (input.shift) {
@@ -316,14 +315,18 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             else
                                 selection.to + @intFromBool(selection.to < self.value().len);
                             if (dest == selection.from) {
-                                self.cursor = .{ .at = .{ .index = dest } };
+                                self.cursor = .{ .at = dest };
                             } else {
                                 self.cursor.select.to = dest;
                             }
                         } else {
-                            self.cursor = .{ .at = .{ .index = selection.right() } };
+                            self.cursor = .{ .at = selection.right() };
                         },
                     },
+
+                    .copy => try self.copy(selection),
+
+                    .paste => try self.paste(selection.left(), selection.len()),
                 },
             }
 
@@ -360,18 +363,18 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         );
                     },
 
-                    .at => |cursor| {
+                    .at => |index| {
                         main.textEx(
                             .roboto_mono,
                             .sm,
-                            self.content.items[0..cursor.index],
+                            self.content.items[0..index],
                             main.theme.text,
                         );
-                        if ((cursor.timer / ibeam_blink_interval) % 2 == 0) {
+                        if ((self.timer / ibeam_blink_interval) % 2 == 0) {
                             clay.ui()(.{
                                 .floating = .{
                                     .offset = .{
-                                        .x = @floatFromInt(cursor.index * char_px_width + ibeam_x_offset),
+                                        .x = @floatFromInt(index * char_px_width + ibeam_x_offset),
                                         .y = ibeam_y_offset,
                                     },
                                     .attachment = .{ .element = .left_center, .parent = .left_center },
@@ -389,7 +392,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         main.textEx(
                             .roboto_mono,
                             .sm,
-                            self.content.items[cursor.index..],
+                            self.content.items[index..],
                             main.theme.text,
                         );
                     },
@@ -430,6 +433,15 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
             self.content.shrinkRetainingCapacity(parent_dir_path.len);
+            switch (self.cursor) {
+                .none => {},
+                .at => |*index| index.* = @min(index.*, self.value().len),
+                .select => |*selection| {
+                    selection.from = @min(selection.from, self.value().len);
+                    selection.to = @min(selection.to, self.value().len);
+                    if (selection.from == selection.to) self.cursor = .{ .at = selection.from };
+                },
+            }
         }
 
         pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
@@ -441,10 +453,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |cursor| _ = self.content.orderedRemove(cursor.index),
+                .at => |index| _ = self.content.orderedRemove(index),
                 .select => |selection| {
                     self.content.replaceRangeAssumeCapacity(selection.left(), selection.len(), "");
-                    self.cursor = .{ .at = .{ .index = selection.left() } };
+                    self.cursor = .{ .at = selection.left() };
                 },
             }
         }
@@ -452,9 +464,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursorToNextSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |cursor| self.content.replaceRangeAssumeCapacity(
-                    cursor.index,
-                    toNextSep(self.value(), cursor.index) - cursor.index,
+                .at => |index| self.content.replaceRangeAssumeCapacity(
+                    index,
+                    toNextSep(self.value(), index) - index,
                     "",
                 ),
                 .select => self.removeCursor(),
@@ -464,19 +476,32 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn removeCursorToPrevSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |cursor| {
-                    const prev = toPrevSep(self.value(), cursor.index);
-                    self.content.replaceRangeAssumeCapacity(prev, cursor.index - prev, "");
-                    self.cursor.at.index = prev;
+                .at => |index| {
+                    const prev = toPrevSep(self.value(), index);
+                    self.content.replaceRangeAssumeCapacity(prev, index - prev, "");
+                    self.cursor.at = prev;
                 },
                 .select => self.removeCursor(),
             }
         }
 
-        fn setClipboard(self: *Self, selection: Selection) Model.Error!void {
+        fn copy(self: *Self, selection: Selection) Model.Error!void {
             try self.content.insert(main.alloc, selection.right(), 0);
             defer _ = self.content.orderedRemove(selection.right());
             rl.setClipboardText(@ptrCast(self.value().ptr + selection.left()));
+        }
+
+        fn paste(self: *Self, index: usize, len: usize) Model.Error!void {
+            const clipboard = mem.span(rl.getClipboardText());
+            if (clipboard.len > max_paste_len) {
+                alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
+            } else if (clipboard.len > 0) {
+                try self.content.replaceRange(main.alloc, index, len, clipboard);
+                for (self.content.items[index..][0..clipboard.len]) |*char| {
+                    if (ascii.isControl(char.*)) char.* = ' ';
+                }
+                self.cursor = .{ .at = index + clipboard.len };
+            }
         }
 
         fn mouseAt(self: Self, mouse_pos: clay.Vector2) ?usize {
@@ -508,15 +533,6 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             } else {
                 return 0;
             }
-        }
-
-        fn getClipboard() ?[]const u8 {
-            const clipboard = mem.span(rl.getClipboardText());
-            if (clipboard.len > max_paste_len) {
-                alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
-                return null;
-            }
-            return if (clipboard.len == 0) null else clipboard;
         }
     };
 }
