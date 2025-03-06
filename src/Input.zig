@@ -77,28 +77,32 @@ pub fn read() Input {
         if (maybe_prev_key) |*prev_key| {
             if (rl.isKeyDown(prev_key.key)) {
                 const now = time.milliTimestamp();
-                switch (prev_key.timer) {
-                    .start => |timer| if (now - timer > hold_down_init_delay) {
-                        prev_key.timer = .{ .repeat = now };
-                        key = prev_key.key;
-                    } else return null_action_input,
-                    .repeat => |timer| if (now - timer > hold_down_repeat_delay) {
-                        prev_key.timer = .{ .repeat = now };
-                        key = prev_key.key;
-                    } else return null_action_input,
-                }
+                prev_key.timer = switch (prev_key.timer) {
+                    .start => |timer| if (now - timer > hold_down_init_delay)
+                        .{ .repeat = now }
+                    else
+                        return null_action_input,
+                    .repeat => |timer| if (now - timer > hold_down_repeat_delay)
+                        .{ .repeat = now }
+                    else
+                        return null_action_input,
+                };
             } else {
                 maybe_prev_key = null;
                 return null_action_input;
             }
+            key = prev_key.key;
         } else {
             return null_action_input;
         }
     }
-    maybe_prev_key = .{
-        .key = key,
-        .timer = @TypeOf(maybe_prev_key.?.timer){ .start = time.milliTimestamp() },
-    };
+    const modifiers = [_]rl.KeyboardKey{ .left_shift, .right_shift, .left_control, .right_control };
+    if (maybe_prev_key == null and std.mem.indexOfScalar(rl.KeyboardKey, &modifiers, key) == null) {
+        maybe_prev_key = .{
+            .key = key,
+            .timer = @TypeOf(maybe_prev_key.?.timer){ .start = time.milliTimestamp() },
+        };
+    }
 
     const key_int = @intFromEnum(key);
     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
@@ -125,7 +129,7 @@ pub fn read() Input {
     };
 
     const maybe_char: ?u8 = if (as_alpha) |alpha|
-        if (!shift) ascii.toLower(alpha) else alpha
+        if (shift) alpha else ascii.toLower(alpha)
     else if (as_num) |num|
         if (shift) switch (num) {
             '1' => '!',
