@@ -31,6 +31,7 @@ sortings: std.EnumArray(Sorting, std.EnumArray(Kind, std.ArrayListUnmanaged(Inde
 curr_sorting: Sorting,
 sort_type: enum { asc, desc },
 max_name_len: u16,
+timer: u32,
 
 const Entries = @This();
 
@@ -110,7 +111,7 @@ const Sorting = enum {
 const Entry = struct {
     name: [2]u32,
     size: u64,
-    selected: ?i64, // TODO replace with more naive frame calculation?
+    selected: bool,
     created: ?Timespan,
     modified: Timespan,
     created_millis: ?u64,
@@ -296,6 +297,7 @@ pub fn init() Model.Error!Entries {
         .curr_sorting = .name,
         .sort_type = .asc,
         .max_name_len = 0,
+        .timer = 0,
     };
     for (&entries.data.values) |*data| {
         data.ensureTotalCapacity(main.alloc, expected_entries) catch return Model.Error.OutOfMemory;
@@ -313,6 +315,8 @@ pub fn deinit(entries: *Entries) void {
 
 pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
     if (!clay.pointerOver(container_id)) return null;
+    entries.timer +|= input.delta_ms;
+
     if (input.clicked(.left)) {
         inline for (comptime enums.values(Sorting)) |sorting| {
             if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
@@ -330,7 +334,12 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
             var sorted_index: Index = 0;
             while (sorted_iter.next()) |entry| : (sorted_index += 1) {
                 if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
-                    return entries.select(kind, entry.index, true, .single); // TODO select type
+                    return entries.select(
+                        kind,
+                        entry.index,
+                        true,
+                        if (input.ctrl) .multi else if (input.shift) .bulk else .single,
+                    );
                 }
             }
         }
@@ -502,7 +511,7 @@ pub fn render(entries: Entries) void {
                             .child_gap = 4,
                         },
                         .rectangle = .{
-                            .color = if (entry.selected) |_|
+                            .color = if (entry.selected)
                                 main.theme.selected
                             else if (clay.pointerOver(entry_id))
                                 main.theme.hovered
@@ -681,7 +690,7 @@ pub fn loadEntries(entries: *Entries, path: []const u8) Model.Error!void {
             .{
                 .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
                 .size = metadata.size(),
-                .selected = null,
+                .selected = false,
                 .created = if (metadata.created()) |created| Timespan.fromNanos(now - created) else null,
                 .modified = Timespan.fromNanos(now - metadata.modified()),
                 .created_millis = if (metadata.created()) |created| nanosToMillis(created) else null,
@@ -789,30 +798,66 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
 }
 
 fn select(entries: *Entries, kind: Kind, index: Index, clicked: bool, select_type: enum { single, multi, bulk }) ?Message {
-    const selected = entries.data_slices.get(kind).items(.selected);
+    const selected = &entries.data_slices.get(kind).items(.selected)[index];
 
-    const now = time.milliTimestamp();
-    if (selected[index]) |selected_ts| {
-        if (clicked and (now - selected_ts) < main.double_click_delay) {
-            const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
-            const name = entries.names.items[name_start..name_end];
-            return switch (kind) {
-                .dir => .{ .open_dir = name },
-                .file => .{ .open_file = name },
-            };
-        }
+    if (clicked and entries.timer < main.double_click_delay and selected.*) {
+        const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
+        const name = entries.names.items[name_start..name_end];
+        return switch (kind) {
+            .dir => .{ .open_dir = name },
+            .file => .{ .open_file = name },
+        };
     }
+    entries.timer = 0;
 
     switch (select_type) {
         .single => {
             for (entries.data_slices.values) |slice| {
-                for (slice.items(.selected)) |*unselect| unselect.* = null;
+                for (slice.items(.selected)) |*unselect| unselect.* = false;
             }
-            selected[index] = now;
+            selected.* = true;
         },
-        .multi => selected[index] = now,
+        .multi => selected.* = !selected.*,
         .bulk => {
-            // TODO
+            var maybe_nearest: ?struct { Kind, Index } = null;
+            var break_next = false;
+            find_nearest: inline for (comptime kinds()) |kind_inner| {
+                var sorted_iter = entries.sorted(kind_inner, &.{.selected});
+                var sorted_index: Index = 0;
+                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                    if (kind_inner == kind and entry.index == index) {
+                        if (maybe_nearest != null) break :find_nearest;
+                        break_next = true;
+                    } else if (entry.selected) {
+                        maybe_nearest = .{ kind_inner, sorted_index };
+                        if (break_next) break :find_nearest;
+                    }
+                }
+            }
+            if (maybe_nearest) |nearest| {
+                const nearest_kind, const nearest_index = nearest;
+                var selecting = false;
+                bulk_select: inline for (comptime kinds()) |kind_inner| {
+                    var sorted_iter = entries.sorted(kind_inner, &.{});
+                    var sorted_index: Index = 0;
+                    while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                        const found_nearest = kind_inner == nearest_kind and sorted_index == nearest_index;
+                        const found_selected = kind_inner == kind and entry.index == index;
+                        if (found_nearest or found_selected) {
+                            if (selecting) {
+                                entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
+                                break :bulk_select;
+                            }
+                            selecting = true;
+                        }
+                        if (selecting) {
+                            entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
+                        }
+                    }
+                }
+            } else {
+                selected.* = true;
+            }
         },
     }
 
@@ -825,9 +870,9 @@ fn jump(entries: *Entries, char: u8) void {
         while (sorted_entries.next()) |entry| {
             if (ascii.startsWithIgnoreCase(entry.name, &.{char})) {
                 for (entries.data_slices.values) |slice| {
-                    for (slice.items(.selected)) |*unselect| unselect.* = null;
+                    for (slice.items(.selected)) |*unselect| unselect.* = false;
                 }
-                entries.data_slices.get(kind).items(.selected)[entry.index] = time.milliTimestamp();
+                entries.data_slices.get(kind).items(.selected)[entry.index] = true;
                 return;
             }
         }
