@@ -99,6 +99,15 @@ pub fn update(model: *Model, input: Input) Error!void {
             }
         }
     }
+
+    if (input.action) |action| switch (action) {
+        .mouse, .event => {},
+        .key => |key| switch (key) {
+            .escape => try model.openParentDir(),
+            else => {},
+        },
+    };
+
     if (try model.cwd.update(input)) |message| {
         switch (message) {
             .submit => |path| try model.entries.loadEntries(path),
@@ -231,182 +240,6 @@ fn openVscode(model: Model) Error!void {
     }
 }
 
-// TODO
-// pub fn enterEditing(model: *Model) void {
-//     model.cursor = @intCast(model.cwd.items.len);
-// }
-
-// pub fn exitEditing(model: *Model) void {
-//     model.cursor = null;
-// }
-
-// pub fn handleKey(model: *Model) Error!void {
-//     const key = rl.getKeyPressed();
-//     const shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
-//     const ctrl = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
-//     const key_int = @intFromEnum(key);
-//     const as_alpha: ?u8 = if (65 <= key_int and key_int <= 90) @intCast(key_int) else null;
-//     const as_num: ?u8 = if (48 <= key_int and key_int <= 57) // number row
-//         @intCast(key_int)
-//     else if (320 <= key_int and key_int <= 329) // numpad
-//         @intCast(key_int - (320 - 48))
-//     else
-//         null;
-//     const as_punc: ?u8 = switch (key) {
-//         .apostrophe => '\'',
-//         .comma => ',',
-//         .minus => '-',
-//         .period => '.',
-//         .slash => '/',
-//         .semicolon => ';',
-//         .equal => '=',
-//         .space => ' ',
-//         .left_bracket => '[',
-//         .backslash => '\\',
-//         .right_bracket => ']',
-//         .grave => '`',
-//         else => null,
-//     };
-
-//     if (model.cursor) |*cursor_index| {
-//         switch (key) {
-//             .backspace => {
-//                 if (ctrl) {
-//                     const maybe_last_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
-//                     if (maybe_last_sep) |last_sep| {
-//                         const last_sep_index: Index = @intCast(last_sep);
-//                         if (cursor_index.* == last_sep_index + 1) {
-//                             cursor_index.* -= 1;
-//                             _ = model.cwd.orderedRemove(cursor_index.*);
-//                         } else {
-//                             model.cwd.replaceRangeAssumeCapacity(last_sep_index, cursor_index.* - last_sep_index, "");
-//                             cursor_index.* = last_sep_index;
-//                         }
-//                     } else {
-//                         model.cwd.shrinkRetainingCapacity(0);
-//                         cursor_index.* = 0;
-//                     }
-//                 } else if (cursor_index.* > 0) {
-//                     _ = model.cwd.orderedRemove(cursor_index.* - 1);
-//                     cursor_index.* -= 1;
-//                 }
-//             },
-//             .delete => if (cursor_index.* < model.cwd.items.len) {
-//                 if (ctrl) {
-//                     const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
-//                     if (maybe_next_sep) |next_sep| {
-//                         const next_sep_index: Index = @intCast(next_sep);
-//                         if (cursor_index.* == next_sep_index) {
-//                             _ = model.cwd.orderedRemove(cursor_index.*);
-//                         } else {
-//                             model.cwd.replaceRangeAssumeCapacity(cursor_index.*, next_sep_index - cursor_index.*, "");
-//                         }
-//                     } else {
-//                         model.cwd.shrinkRetainingCapacity(cursor_index.*);
-//                     }
-//                 } else {
-//                     _ = model.cwd.orderedRemove(cursor_index.*);
-//                 }
-//             },
-//             .tab, .escape => model.exitEditing(),
-//             .enter => try model.entries.load_entries(model.cwd.items),
-//             .up, .home => cursor_index.* = 0,
-//             .down, .end => cursor_index.* = @intCast(model.cwd.items.len),
-//             .left => {
-//                 if (ctrl) {
-//                     const maybe_prev_sep = mem.lastIndexOfScalar(u8, model.cwd.items[0..cursor_index.*], fs.path.sep);
-//                     if (maybe_prev_sep) |prev_sep| {
-//                         const prev_sep_index: Index = @intCast(prev_sep);
-//                         if (cursor_index.* == prev_sep_index + 1) {
-//                             cursor_index.* -= 1;
-//                         } else {
-//                             cursor_index.* = prev_sep_index + 1;
-//                         }
-//                     } else {
-//                         cursor_index.* = 0;
-//                     }
-//                 } else if (cursor_index.* > 0) {
-//                     cursor_index.* -= 1;
-//                 }
-//             },
-//             .right => {
-//                 if (ctrl) {
-//                     const maybe_next_sep = mem.indexOfScalarPos(u8, model.cwd.items, cursor_index.*, fs.path.sep);
-//                     if (maybe_next_sep) |next_sep| {
-//                         const next_sep_index: Index = @intCast(next_sep);
-//                         if (cursor_index.* == next_sep_index) {
-//                             cursor_index.* += 1;
-//                         } else {
-//                             cursor_index.* = next_sep_index;
-//                         }
-//                     } else {
-//                         cursor_index.* = @intCast(model.cwd.items.len);
-//                     }
-//                 } else if (cursor_index.* < model.cwd.items.len) {
-//                     cursor_index.* += 1;
-//                 }
-//             },
-
-//             else => {
-//                 const maybe_char: ?u8 = if (as_alpha) |alpha|
-//                     if (!shift) ascii.toLower(alpha) else alpha
-//                 else if (as_num) |num|
-//                     if (shift) switch (num) {
-//                         '1' => '!',
-//                         '2' => '@',
-//                         '3' => '#',
-//                         '4' => '$',
-//                         '5' => '%',
-//                         '6' => '^',
-//                         '7' => '&',
-//                         '8' => '*',
-//                         '9' => '(',
-//                         '0' => ')',
-//                         else => unreachable,
-//                     } else num
-//                 else if (as_punc) |punc|
-//                     if (shift) switch (punc) {
-//                         '\'' => '"',
-//                         ',' => '<',
-//                         '-' => '_',
-//                         '.' => '>',
-//                         '/' => '?',
-//                         ';' => ':',
-//                         '=' => '+',
-//                         ' ' => ' ',
-//                         '[' => '{',
-//                         '\\' => '|',
-//                         ']' => '}',
-//                         '`' => '~',
-//                         else => unreachable,
-//                     } else punc
-//                 else
-//                     null;
-
-//                 if (maybe_char) |char| {
-//                     if (ctrl) {
-//                         switch (char) {
-//                             'c' => {
-//                                 try model.cwd.append(main.alloc, 0);
-//                                 defer _ = model.cwd.pop();
-//                                 rl.setClipboardText(@ptrCast(model.cwd.items.ptr));
-//                             },
-//                             'v' => {
-//                                 var clipboard: []const u8 = mem.span(rl.getClipboardText());
-//                                 if (clipboard.len > max_paste_len) clipboard = clipboard[0..max_paste_len]; // TODO cull large cwd
-//                                 try model.cwd.insertSlice(main.alloc, cursor_index.*, clipboard);
-//                                 cursor_index.* += @intCast(clipboard.len);
-//                             },
-//                             else => {},
-//                         }
-//                     } else {
-//                         try model.cwd.insert(main.alloc, cursor_index.*, char);
-//                         cursor_index.* += 1;
-//                     }
-//                 }
-//             },
-//         }
-//     } else {
 //         switch (key) {
 //             .escape => {
 //                 try model.open_parent_dir();

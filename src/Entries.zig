@@ -179,9 +179,12 @@ var file_types = std.StaticStringMapWithEql(
 ).initComptime(extensions.data);
 
 const container_id = main.newId("EntriesContainer");
+const entries_id = main.newId("Entries");
+
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
-const entries_px_offset = 455; // TODO this includes shortcut width
+const entries_x_offset = 455; // TODO this includes shortcut width
+const entries_y_offset = 104;
 const min_name_chars = 16;
 const max_name_chars = 32;
 const type_chars = 12;
@@ -235,15 +238,31 @@ fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Ele
     return main.newId("EntriesColumn" ++ title ++ suffix);
 }
 
-fn twoDigitString(n: u7) []const u8 {
-    const one_digits = "0123456789";
+// TODO currently always puts entry at top or highest it can.
+// should instead do nothing if entry already in frame,
+// if entry coming from above put it on top,
+// if entry from below put it on bottom
+fn scrollToView(comptime kind: Kind, index: Index) void {
+    const container = clay.getScrollContainerData(entries_id);
+    if (!container.found) return;
+    container.scroll_position.y += entries_y_offset;
+    const bounds = main.getBounds(getEntryId(kind, "", index)) orelse return;
+    container.scroll_position.y -= bounds.y;
+    const dist_to_bottom = container.content_dimensions.height + container.scroll_position.y;
+    if (dist_to_bottom < container.scroll_container_dimensions.height) {
+        container.scroll_position.y += container.scroll_container_dimensions.height - dist_to_bottom;
+    }
+}
+
+fn intToString(n: u7) []const u8 {
+    const one_digit = "0123456789";
     const two_digits =
         "____________________10111213141516171819" ++
         "2021222324252627282930313233343536373839" ++
         "4041424344454647484950515253545556575859" ++
         "6061626364656667686970717273747576777879" ++
         "8081828384858687888990919293949596979899";
-    return if (n < 10) one_digits[n..][0..1] else two_digits[n * 2 ..][0..2];
+    return if (n < 10) one_digit[n..][0..1] else two_digits[n * 2 ..][0..2];
 }
 
 fn nanosToMillis(nanos: i128) u64 {
@@ -348,6 +367,9 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
             .mouse, .event => {},
             .key => |key| switch (key) {
                 .char => |char| entries.jump(char),
+
+                //TODO nav buttons
+
                 else => {},
             },
         }
@@ -461,7 +483,7 @@ pub fn render(entries: Entries) void {
                 }
             }.f;
 
-            var cutoff: usize = entries_px_offset;
+            var cutoff: usize = entries_x_offset;
 
             column(entries, .name, name_sizing);
             cutoff += name_chars * char_px_width;
@@ -479,7 +501,7 @@ pub fn render(entries: Entries) void {
         });
 
         clay.ui()(.{
-            .id = main.newId("Entries"),
+            .id = entries_id,
             .layout = .{
                 .padding = clay.Padding.all(10),
                 .sizing = .{
@@ -545,7 +567,7 @@ pub fn render(entries: Entries) void {
                             })({});
                         });
 
-                        var cutoff: usize = entries_px_offset;
+                        var cutoff: usize = entries_x_offset;
 
                         clay.ui()(.{
                             .id = getEntryId(kind, "Name", sorted_index),
@@ -611,7 +633,7 @@ pub fn render(entries: Entries) void {
                                     switch (created) {
                                         .just_now => main.text("Just now"),
                                         .past => |timespan| {
-                                            main.text(twoDigitString(timespan.count));
+                                            main.text(intToString(timespan.count));
                                             main.text(timespan.metric.toString(timespan.count != 1));
                                         },
                                     }
@@ -631,7 +653,7 @@ pub fn render(entries: Entries) void {
                                 switch (entry.modified) {
                                     .just_now => main.text("Just now"),
                                     .past => |timespan| {
-                                        main.text(twoDigitString(timespan.count));
+                                        main.text(intToString(timespan.count));
                                         main.text(timespan.metric.toString(timespan.count != 1));
                                     },
                                 }
@@ -865,16 +887,34 @@ fn select(entries: *Entries, kind: Kind, index: Index, clicked: bool, select_typ
 }
 
 fn jump(entries: *Entries, char: u8) void {
-    for (kinds()) |kind| {
+    var first: ?struct { Kind, Index } = null;
+    var found_selected = false;
+    inline for (comptime kinds()) |kind| {
         var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
-        while (sorted_entries.next()) |entry| {
+        var sorted_index: Index = 0;
+        while (sorted_entries.next()) |entry| : (sorted_index += 1) {
             if (ascii.startsWithIgnoreCase(entry.name, &.{char})) {
-                for (entries.data_slices.values) |slice| {
-                    for (slice.items(.selected)) |*unselect| unselect.* = false;
+                const selected = &entries.data_slices.get(kind).items(.selected)[entry.index];
+                if (first == null) first = .{ kind, sorted_index };
+                if (selected.*) {
+                    found_selected = true;
+                } else if (found_selected) {
+                    for (entries.data_slices.values) |slice| {
+                        for (slice.items(.selected)) |*unselect| unselect.* = false;
+                    }
+                    selected.* = true;
+                    scrollToView(kind, sorted_index);
+                    return;
                 }
-                entries.data_slices.get(kind).items(.selected)[entry.index] = true;
-                return;
             }
         }
+    }
+    const kind, const index = first orelse return;
+    for (entries.data_slices.values) |slice| {
+        for (slice.items(.selected)) |*unselect| unselect.* = false;
+    }
+    entries.data_slices.get(kind).items(.selected)[index] = true;
+    switch (kind) {
+        inline else => |kind_inner| scrollToView(kind_inner, index),
     }
 }
