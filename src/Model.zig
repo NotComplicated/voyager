@@ -16,8 +16,7 @@ const main = @import("main.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
-const text_box = @import("text_box.zig");
-const TextBox = text_box.TextBox;
+const TextBox = @import("text_box.zig").TextBox;
 const Entries = @import("Entries.zig");
 
 cwd: TextBox(.path, main.newId("CurrentDir")),
