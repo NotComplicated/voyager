@@ -11,7 +11,7 @@ const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
 const tooltip_duration = 500;
-const offset = clay.Vector2{ .x = 16, .y = 20 };
+const offset = clay.Vector2{ .x = 16, .y = 24 };
 
 var tooltip: struct {
     state: union(enum) {
@@ -57,7 +57,7 @@ pub fn render() void {
         .disabled, .delay => {},
         .enabled => |state| if (tooltip.msg.items.len > 0) {
             var pos = clay.Vector2{ .x = state.pos.x + offset.x, .y = state.pos.y + offset.y };
-            if (pos.y + 25 > @as(f32, @floatFromInt(rl.getScreenHeight()))) pos.y -= 65;
+            if (pos.y + 45 > @as(f32, @floatFromInt(rl.getScreenHeight()))) pos.y -= 65;
             const pos_x_end = pos.x + @as(f32, @floatFromInt(tooltip.msg.items.len * 9));
             const width = @as(f32, @floatFromInt(rl.getScreenWidth()));
             if (pos_x_end > width) pos.x -= pos_x_end - width;

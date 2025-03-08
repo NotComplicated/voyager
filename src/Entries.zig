@@ -238,20 +238,14 @@ fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Ele
     return main.newId("EntriesColumn" ++ title ++ suffix);
 }
 
-// TODO currently always puts entry at top or highest it can.
-// should instead do nothing if entry already in frame,
-// if entry coming from above put it on top,
-// if entry from below put it on bottom
 fn scrollToView(comptime kind: Kind, index: Index) void {
     const container = clay.getScrollContainerData(entries_id);
     if (!container.found) return;
-    container.scroll_position.y += entries_y_offset;
     const bounds = main.getBounds(getEntryId(kind, "", index)) orelse return;
-    container.scroll_position.y -= bounds.y;
-    const dist_to_bottom = container.content_dimensions.height + container.scroll_position.y;
-    if (dist_to_bottom < container.scroll_container_dimensions.height) {
-        container.scroll_position.y += container.scroll_container_dimensions.height - dist_to_bottom;
-    }
+    const entry_y = bounds.y - entries_y_offset;
+    if (entry_y < 0) container.scroll_position.y -= entry_y;
+    const scroll_y = container.scroll_container_dimensions.height;
+    if ((entry_y + bounds.height) > scroll_y) container.scroll_position.y -= entry_y - scroll_y + (bounds.height * 1.5);
 }
 
 fn intToString(n: u7) []const u8 {
@@ -262,7 +256,7 @@ fn intToString(n: u7) []const u8 {
         "4041424344454647484950515253545556575859" ++
         "6061626364656667686970717273747576777879" ++
         "8081828384858687888990919293949596979899";
-    return if (n < 10) one_digit[n..][0..1] else two_digits[n * 2 ..][0..2];
+    return if (n < 10) one_digit[n..][0..1] else if (n < 100) two_digits[n * 2 ..][0..2] else "100+";
 }
 
 fn nanosToMillis(nanos: i128) u64 {
@@ -838,6 +832,14 @@ fn select(entries: *Entries, kind: Kind, index: Index, clicked: bool, select_typ
                 for (slice.items(.selected)) |*unselect| unselect.* = false;
             }
             selected.* = true;
+            const sorted_slice = entries.sortings.get(entries.curr_sorting).get(kind).items;
+            const sorted_index = math.lossyCast(Index, mem.indexOfScalar(Index, sorted_slice, index) orelse {
+                alert.updateFmt("Sorting invariant violated", .{});
+                return null;
+            });
+            switch (kind) {
+                inline else => |kind_inner| scrollToView(kind_inner, sorted_index),
+            }
         },
         .multi => selected.* = !selected.*,
         .bulk => {
@@ -891,30 +893,19 @@ fn jump(entries: *Entries, char: u8) void {
     var found_selected = false;
     inline for (comptime kinds()) |kind| {
         var sorted_entries = entries.sorted(kind, &.{ .name, .selected });
-        var sorted_index: Index = 0;
-        while (sorted_entries.next()) |entry| : (sorted_index += 1) {
+        while (sorted_entries.next()) |entry| {
             if (ascii.startsWithIgnoreCase(entry.name, &.{char})) {
                 const selected = &entries.data_slices.get(kind).items(.selected)[entry.index];
-                if (first == null) first = .{ kind, sorted_index };
+                if (first == null) first = .{ kind, entry.index };
                 if (selected.*) {
                     found_selected = true;
                 } else if (found_selected) {
-                    for (entries.data_slices.values) |slice| {
-                        for (slice.items(.selected)) |*unselect| unselect.* = false;
-                    }
-                    selected.* = true;
-                    scrollToView(kind, sorted_index);
+                    _ = entries.select(kind, entry.index, false, .single);
                     return;
                 }
             }
         }
     }
     const kind, const index = first orelse return;
-    for (entries.data_slices.values) |slice| {
-        for (slice.items(.selected)) |*unselect| unselect.* = false;
-    }
-    entries.data_slices.get(kind).items(.selected)[index] = true;
-    switch (kind) {
-        inline else => |kind_inner| scrollToView(kind_inner, index),
-    }
+    _ = entries.select(kind, index, false, .single);
 }
