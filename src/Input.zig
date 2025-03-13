@@ -4,12 +4,12 @@ const enums = std.enums;
 const meta = std.meta;
 const time = std.time;
 const mem = std.mem;
-const os = std.os;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const windows = @import("windows.zig");
 
 mouse_pos: clay.Vector2,
 action: ?union(enum) {
@@ -31,7 +31,7 @@ action: ?union(enum) {
         left,
         right,
     },
-    event: if (main.windows) WinEvent else noreturn,
+    event: if (main.is_windows) windows.Event else noreturn,
 },
 delta_ms: u32,
 shift: bool,
@@ -39,70 +39,9 @@ ctrl: bool,
 
 const Input = @This();
 
-const WinEvent = enum {
-    copy,
-    paste,
-    undo,
-    redo,
-};
-
 var maybe_prev_key: ?struct { key: rl.KeyboardKey, timer: i64 } = null;
 const hold_down_init_delay = 400;
 const hold_down_repeat_delay = 50;
-
-const gwlp_wndproc = -4;
-const wm_char = 0x0102;
-const copy_char = 'C' - 0x40;
-const paste_char = 'V' - 0x40;
-const undo_char = 'Z' - 0x40;
-const redo_char = 'Y' - 0x40;
-const WNDPROC = @TypeOf(&newWindowProc);
-extern fn SetWindowLongPtrW(
-    wnd: os.windows.HWND,
-    index: os.windows.INT,
-    newlong: os.windows.LONG_PTR,
-) os.windows.LONG_PTR;
-extern fn GetWindowLongPtrW(
-    wnd: os.windows.HWND,
-    index: os.windows.INT,
-) os.windows.LONG_PTR;
-extern fn CallWindowProcW(
-    lpPrevWndFunc: WNDPROC,
-    os.windows.HWND,
-    msg: os.windows.UINT,
-    wparam: os.windows.WPARAM,
-    lparam: os.windows.LPARAM,
-) os.windows.LRESULT;
-
-var oldWindowProc: ?WNDPROC = null;
-var maybe_windows_event: ?WinEvent = null;
-
-fn newWindowProc(
-    handle: os.windows.HWND,
-    message: os.windows.UINT,
-    wparam: os.windows.WPARAM,
-    lparam: os.windows.LPARAM,
-) callconv(.C) os.windows.LRESULT {
-    switch (message) {
-        wm_char => switch (wparam) {
-            copy_char => maybe_windows_event = .copy,
-            paste_char => maybe_windows_event = .paste,
-            undo_char => maybe_windows_event = .undo,
-            redo_char => maybe_windows_event = .redo,
-            else => {},
-        },
-        else => {},
-    }
-    return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
-}
-
-pub fn init() void {
-    if (main.windows) {
-        const handle: os.windows.HWND = @ptrCast(rl.getWindowHandle());
-        oldWindowProc = @ptrFromInt(@as(usize, @intCast(GetWindowLongPtrW(handle, gwlp_wndproc))));
-        _ = SetWindowLongPtrW(handle, gwlp_wndproc, @intCast(@intFromPtr(&newWindowProc)));
-    }
-}
 
 pub fn read() Input {
     var input = Input{
@@ -113,10 +52,10 @@ pub fn read() Input {
         .ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control),
     };
 
-    if (main.windows) {
-        if (maybe_windows_event) |windows_event| {
-            input.action = .{ .event = windows_event };
-            maybe_windows_event = null;
+    if (main.is_windows) {
+        if (windows.event) |event| {
+            input.action = .{ .event = event };
+            windows.event = null;
             return input;
         }
     }

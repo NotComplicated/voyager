@@ -1,18 +1,18 @@
 const builtin = @import("builtin");
-pub const debug = builtin.mode == .Debug;
-pub const windows = builtin.os.tag == .windows;
+pub const is_debug = builtin.mode == .Debug;
+pub const is_windows = builtin.os.tag == .windows;
 
 const std = @import("std");
 const testing = std.testing;
 const enums = std.enums;
 const heap = std.heap;
 const math = std.math;
-const os = std.os;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
 const rl = @import("raylib");
 
+const windows = @import("windows.zig");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const Font = resources.Font;
@@ -21,14 +21,14 @@ const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-const title = "Voyager" ++ if (debug) " (Debug)" else "";
-const width = 1200 + if (debug) 400 else 0;
+const title = "Voyager" ++ if (is_debug) " (Debug)" else "";
+const width = 1200 + if (is_debug) 400 else 0;
 const height = 600;
 const mem_scale = 4;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
-pub const alloc = if (debug) logging_page_alloc.allocator() else heap.c_allocator;
+pub const alloc = if (is_debug) logging_page_alloc.allocator() else heap.c_allocator;
 
 // a buffer for the raylib renderer to use for temporary string copies
 var buf: [4096]u8 = undefined;
@@ -64,10 +64,7 @@ pub const theme = .{
     .pitch_black = rgb(17, 17, 27),
 };
 
-const title_color =
-    @as(os.windows.DWORD, @intFromFloat(theme.base.r)) +
-    (@as(os.windows.DWORD, @intFromFloat(theme.base.g)) << 8) +
-    (@as(os.windows.DWORD, @intFromFloat(theme.base.b)) << 16);
+const title_color = windows.colorFromClay(theme.base);
 const dwma_caption_color = 35;
 
 pub const rounded = clay.CornerRadius.all(6);
@@ -165,28 +162,20 @@ pub fn main() !void {
 
     _ = clay.initialize(arena, .{ .width = width, .height = height }, .{ .function = alert.updateClay });
     clay.setMeasureTextFunction(renderer.measureText);
-    clay.setDebugModeEnabled(debug);
+    clay.setDebugModeEnabled(is_debug);
     renderer.initialize(width, height, title, rl_config);
     defer rl.closeWindow();
     rl.setExitKey(.null);
 
-    if (windows) {
-        _ = struct {
-            extern fn DwmSetWindowAttribute(
-                window: os.windows.HWND,
-                attr: os.windows.DWORD,
-                pvAttr: os.windows.LPCVOID,
-                cbAttr: os.windows.DWORD,
-            ) os.windows.HRESULT;
-        }.DwmSetWindowAttribute(
-            @ptrCast(rl.getWindowHandle()),
+    if (is_windows) {
+        windows.init();
+        _ = windows.DwmSetWindowAttribute(
+            windows.getHandle(),
             dwma_caption_color,
             &title_color,
             @sizeOf(@TypeOf(title_color)),
         );
     }
-
-    Input.init();
 
     try resources.init();
     defer resources.deinit();

@@ -9,13 +9,13 @@ const time = std.time;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
-const os = std.os;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 const Datetime = @import("datetime").datetime.Datetime;
 
 const main = @import("main.zig");
+const windows = @import("windows.zig");
 const resources = @import("resources.zig");
 const extensions = @import("extensions.zig");
 const alert = @import("alert.zig");
@@ -206,27 +206,6 @@ const type_sizing = getSizing(type_chars);
 const size_sizing = getSizing(size_chars);
 const timespan_sizing = getSizing(timespan_chars);
 
-const SYSTEMTIME = extern struct {
-    wYear: os.windows.WORD,
-    wMonth: os.windows.WORD,
-    wDayOfWeek: os.windows.WORD,
-    wDay: os.windows.WORD,
-    wHour: os.windows.WORD,
-    wMinute: os.windows.WORD,
-    wSecond: os.windows.WORD,
-    wMilliseconds: os.windows.WORD,
-};
-const TIME_ZONE_INFORMATION = extern struct {
-    Bias: os.windows.LONG,
-    StandardName: [32]os.windows.WCHAR,
-    StandardDate: SYSTEMTIME,
-    StandardBias: os.windows.LONG,
-    DaylightName: [32]os.windows.WCHAR,
-    DaylightDate: SYSTEMTIME,
-    DaylightBias: os.windows.LONG,
-};
-extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) os.windows.DWORD;
-
 fn kinds() []const Kind {
     return enums.values(Kind);
 }
@@ -271,10 +250,10 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
         var bias: ?i32 = null;
 
         fn getTimezone() void {
-            if (main.windows) {
-                var timezone_info = mem.zeroes(TIME_ZONE_INFORMATION);
-                switch (GetTimeZoneInformation(&timezone_info)) {
-                    0, 1, 2 => bias = timezone_info.Bias,
+            if (main.is_windows) {
+                var timezone_info = mem.zeroes(windows.TIME_ZONE_INFORMATION);
+                switch (windows.GetTimeZoneInformation(&timezone_info)) {
+                    0, 1, 2 => bias = timezone_info.bias,
                     else => alert.updateFmt("Failed to get timezone.", .{}),
                 }
             }

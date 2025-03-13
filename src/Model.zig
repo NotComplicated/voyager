@@ -7,12 +7,12 @@ const fmt = std.fmt;
 const log = std.log;
 const mem = std.mem;
 const fs = std.fs;
-const os = std.os;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const windows = @import("windows.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
@@ -38,15 +38,6 @@ const nav_buttons = .{
     .refresh = main.newId("Refresh"),
     .vscode = main.newId("VsCode"),
 };
-
-extern fn ShellExecuteA(
-    hwnd: ?os.windows.HWND,
-    lpOperation: ?os.windows.LPCSTR,
-    lpFile: os.windows.LPCSTR,
-    lpParameters: ?os.windows.LPCSTR,
-    lpDirectory: ?os.windows.LPCSTR,
-    nShowCmd: os.windows.INT,
-) os.windows.HINSTANCE;
 
 fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
     clay.ui()(.{
@@ -83,7 +74,7 @@ pub fn deinit(model: *Model) void {
 }
 
 pub fn update(model: *Model, input: Input) Error!void {
-    if (main.debug and input.clicked(.middle)) {
+    if (main.is_debug and input.clicked(.middle)) {
         log.debug("{}\n", .{model});
     } else if (input.clicked(.side)) {
         try model.openParentDir();
@@ -201,38 +192,27 @@ fn openParentDir(model: *Model) Error!void {
 }
 
 fn openFile(model: Model, name: []const u8) Error!void {
-    if (main.windows) {
+    if (main.is_windows) {
         const path = try fs.path.joinZ(main.alloc, &.{ model.cwd.value(), name });
         defer main.alloc.free(path);
-        const instance = ShellExecuteA(@ptrCast(rl.getWindowHandle()), null, path, null, null, 0);
-        const status = @intFromPtr(instance);
-        if (status <= 32) return alert.updateFmt("{s}", .{
-            switch (status) {
-                2 => "File not found.",
-                3 => "Path not found.",
-                5 => "Access denied.",
-                8 => "Out of memory.",
-                32 => "Dynamic-link library not found.",
-                26 => "Cannot share an open file.",
-                27 => "File association information not complete.",
-                28 => "DDE operation timed out.",
-                29 => "DDE operation failed.",
-                30 => "DDE operation is busy.",
-                31 => "File association not available.",
-                else => "Unknown status code.",
-            },
-        });
+        const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, null, null, 0));
+        if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
     } else {
         return Error.OsNotSupported;
     }
 }
 
+fn delete(model: *Model, name: []const u8) Error!void {
+    const path = try fs.path.joinZ(main.alloc, &.{ model.cwd.value(), name });
+    defer main.alloc.free(path);
+    try model.entries.loadEntries(model.cwd.value());
+}
+
 fn openVscode(model: Model) Error!void {
-    if (main.windows) {
+    if (main.is_windows) {
         const path = try main.alloc.dupeZ(u8, model.cwd.value());
         defer main.alloc.free(path);
-        const instance = ShellExecuteA(@ptrCast(rl.getWindowHandle()), null, "code", path, null, 0);
-        const status = @intFromPtr(instance);
+        const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, "code", path, null, 0));
         if (status <= 32) return alert.updateFmt("Failed to open directory.", .{});
     } else {
         return Error.OsNotSupported;
