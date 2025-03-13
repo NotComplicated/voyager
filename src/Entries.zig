@@ -32,7 +32,9 @@ curr_sorting: Sorting,
 sort_type: enum { asc, desc },
 max_name_len: u16,
 timer: u32,
-selection: ?struct { from: struct { Kind, Index }, to: ?struct { Kind, Index } },
+selection: ?struct { from: struct { Kind, Index }, to: struct { Kind, Index } },
+view: enum { list, grid_sm, grid_md, grid_lg },
+row_len: Index,
 
 const Entries = @This();
 
@@ -313,6 +315,8 @@ pub fn init() Model.Error!Entries {
         .max_name_len = 0,
         .timer = 0,
         .selection = null,
+        .view = .list,
+        .row_len = 1,
     };
     for (&entries.data.values) |*data| {
         data.ensureTotalCapacity(main.alloc, expected_entries) catch return Model.Error.OutOfMemory;
@@ -357,9 +361,37 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
         switch (action) {
             .mouse, .event => {},
             .key => |key| switch (key) {
-                .char => |char| entries.jump(char),
+                .char => |char| if (input.ctrl) switch (char) {
+                    'a' => {
+                        entries.selectFirst(false, false);
+                        entries.selectLast(false, true);
+                    },
+                    else => {},
+                } else entries.jump(char),
 
-                //TODO nav buttons
+                .left, .right, .up, .down => if (entries.selection) |selection| {
+                    var kind, var index = selection.to;
+                    switch (key) {
+                        .left => {
+                            kind, index = entries.prevSortedEntry(kind, index);
+                        },
+                        .right => {
+                            kind, index = entries.nextSortedEntry(kind, index);
+                        },
+                        .up => {
+                            for (0..entries.row_len) |_| kind, index = entries.prevSortedEntry(kind, index);
+                        },
+                        .down => {
+                            for (0..entries.row_len) |_| kind, index = entries.nextSortedEntry(kind, index);
+                        },
+                        else => unreachable,
+                    }
+                    entries.select(false, kind, index, input.ctrl, input.shift);
+                } else entries.selectFirst(input.ctrl, input.shift),
+
+                .home => entries.selectFirst(input.ctrl, input.shift),
+
+                .end => entries.selectLast(input.ctrl, input.shift),
 
                 else => {},
             },
@@ -723,6 +755,8 @@ pub fn loadEntries(entries: *Entries, path: []const u8) Model.Error!void {
 
     try entries.sort(.name);
     entries.sort_type = .asc;
+    entries.view = .list;
+    entries.row_len = 1;
 }
 
 pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
@@ -812,23 +846,26 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
     entries.selection = null;
 }
 
-fn nextSortedEntry(entries: Entries, kind: Kind, index: Index) ?struct { Kind, Index } {
+fn nextSortedEntry(entries: Entries, kind: Kind, index: Index) struct { Kind, Index } {
     const Indexer = @TypeOf(entries.sortings.get(undefined)).Indexer;
-    if (index == entries.sortings.get(entries.curr_sorting).get(kind).items.len) {
-        if (Indexer.indexOf(kind) == Indexer.count) return null;
-        return .{ Indexer.keyForIndex(Indexer.indexOf(kind) + 1), 0 };
-    }
-    return .{ kind, index + 1 };
+    return if (index == entries.data.get(kind).len - 1)
+        if (Indexer.indexOf(kind) == Indexer.count - 1)
+            .{ kind, index }
+        else
+            .{ Indexer.keyForIndex(Indexer.indexOf(kind) + 1), 0 }
+    else
+        .{ kind, index + 1 };
 }
 
-fn prevSortedEntry(entries: Entries, kind: Kind, index: Index) ?struct { Kind, Index } {
-    const Indexer = @TypeOf(entries.sortings).Indexer;
-    if (index == 0) {
-        if (Indexer.indexOf(kind) == 0) return null;
+fn prevSortedEntry(entries: Entries, kind: Kind, index: Index) struct { Kind, Index } {
+    const Indexer = @TypeOf(entries.sortings.get(undefined)).Indexer;
+    if (index != 0) return .{ kind, index - 1 };
+    if (Indexer.indexOf(kind) == 0) {
+        return .{ kind, index };
+    } else {
         const new_kind = Indexer.keyForIndex(Indexer.indexOf(kind) - 1);
-        return .{ new_kind, entries.sortings.get(entries.curr_sorting).get(new_kind).items.len - 1 };
+        return .{ new_kind, @intCast(entries.sortings.get(entries.curr_sorting).get(new_kind).items.len - 1) };
     }
-    return .{ kind, index - 1 };
 }
 
 fn select(
@@ -839,10 +876,12 @@ fn select(
     multi: bool,
     bulk: bool,
 ) if (clicked) ?Message else void {
-    const selected = &entries.data_slices.get(kind).items(.selected)[index];
-
-    if (clicked and selected.* and entries.timer < main.double_click_delay) {
-        // TODO allow multi-file open
+    if (clicked and
+        entries.selection != null and
+        meta.eql(entries.selection.?.to, .{ kind, index }) and
+        entries.timer < main.double_click_delay)
+    {
+        // TODO allow multi-file open?
         const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
         const name = entries.names.items[name_start..name_end];
         entries.selection = null;
@@ -864,26 +903,31 @@ fn select(
             .from = if (entries.selection) |selection| selection.from else .{ .dir, 0 },
             .to = .{ kind, index },
         };
-        var in_selection = false;
-        select: for (kinds()) |kind_inner| {
-            var sorted_iter = entries.sorted(kind_inner, &.{.selected});
-            var sorted_index: Index = 0;
-            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
-                const at_border = (meta.eql(entries.selection.?.from, .{ kind_inner, sorted_index })) or
-                    (meta.eql(entries.selection.?.to, .{ kind_inner, sorted_index }));
-                if (at_border) {
-                    if (in_selection) {
-                        entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
-                        break :select;
+        if (meta.eql(entries.selection.?.from, entries.selection.?.to)) {
+            entries.data_slices.get(kind).items(.selected)[index] = true;
+        } else {
+            var in_selection = false;
+            select: for (kinds()) |kind_inner| {
+                var sorted_iter = entries.sorted(kind_inner, &.{.selected});
+                var sorted_index: Index = 0;
+                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                    const at_border = (meta.eql(entries.selection.?.from, .{ kind_inner, sorted_index })) or
+                        (meta.eql(entries.selection.?.to, .{ kind_inner, sorted_index }));
+                    if (at_border) {
+                        if (in_selection) {
+                            entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
+                            break :select;
+                        }
+                        in_selection = true;
                     }
-                    in_selection = true;
+                    if (in_selection) entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
                 }
-                if (in_selection) entries.data_slices.get(kind_inner).items(.selected)[entry.index] = true;
             }
         }
     } else {
+        const selected = &entries.data_slices.get(kind).items(.selected)[index];
         selected.* = !selected.*;
-        if (selected.*) entries.selection = .{ .from = .{ kind, index }, .to = entries.nextSortedEntry(kind, index) };
+        if (selected.*) entries.selection = .{ .from = .{ kind, index }, .to = .{ kind, index } };
     }
 
     const sorted_slice = entries.sortings.get(entries.curr_sorting).get(kind).items;
@@ -892,6 +936,20 @@ fn select(
     } else alert.updateFmt("Sorting invariant violated", .{});
 
     return if (clicked) null else {};
+}
+
+fn selectFirst(entries: *Entries, multi: bool, bulk: bool) void {
+    for (kinds()) |kind| if (entries.data.get(kind).len > 0) return entries.select(false, kind, 0, multi, bulk);
+}
+
+fn selectLast(entries: *Entries, multi: bool, bulk: bool) void {
+    var reversed = mem.reverseIterator(kinds());
+    while (reversed.next()) |kind| {
+        if (entries.data.get(kind).len > 0) {
+            entries.select(false, kind, @intCast(entries.data.get(kind).len - 1), multi, bulk);
+            break;
+        }
+    }
 }
 
 fn jump(entries: *Entries, char: u8) void {
