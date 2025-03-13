@@ -167,6 +167,7 @@ pub fn main() !void {
     clay.setMeasureTextFunction(renderer.measureText);
     clay.setDebugModeEnabled(debug);
     renderer.initialize(width, height, title, rl_config);
+    defer rl.closeWindow();
     rl.setExitKey(.null);
 
     if (windows) {
