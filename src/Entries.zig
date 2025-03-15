@@ -314,7 +314,7 @@ pub fn deinit(entries: *Entries) void {
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
 }
 
-pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
+pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Message {
     entries.timer +|= input.delta_ms;
 
     if (input.clicked(.left)) {
@@ -341,6 +341,7 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
             }
         }
     } else if (input.action) |action| {
+        if (!focused) return null;
         switch (action) {
             .mouse, .event => {},
             .key => |key| switch (key) {

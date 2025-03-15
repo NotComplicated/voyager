@@ -111,6 +111,8 @@ pub fn ibeam() void {
     if (clay.hovered()) cursor = .ibeam;
 }
 
+var focused = true;
+
 // can't use clay.getElementData until it's patched
 extern fn Clay_GetElementData(id: clay.external_typedefs.ElementConfig.Id) clay.Element.Data;
 pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
@@ -224,7 +226,11 @@ fn frame(model: *Model) void {
 
     model.update(Input.read()) catch |err| alert.update(err);
 
-    rl.setTargetFPS(if (rl.isWindowFocused()) 0 else unfocused_fps);
+    const new_focused = rl.isWindowFocused();
+    if (new_focused != focused) {
+        focused = new_focused;
+        rl.setTargetFPS(if (focused) 0 else unfocused_fps);
+    }
     rl.beginDrawing();
     defer rl.endDrawing();
 

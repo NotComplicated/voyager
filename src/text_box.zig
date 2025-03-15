@@ -59,7 +59,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             submit: []const u8,
         };
 
-        pub fn init() Model.Error!Self {
+        pub fn init(contents: []const u8) Model.Error!Self {
             var text_box = Self{
                 .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 256),
                 .cursor = .none,
@@ -68,11 +68,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             };
             errdefer text_box.content.deinit(main.alloc);
 
-            if (kind == .path) {
-                const path = fs.realpathAlloc(main.alloc, ".") catch return Model.Error.OutOfMemory;
-                defer main.alloc.free(path);
-                try text_box.content.appendSlice(main.alloc, path);
-            }
+            try text_box.content.appendSlice(main.alloc, contents);
 
             for (text_box.history.unusedCapacitySlice()) |*hist| {
                 hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = .none };
@@ -247,6 +243,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         },
                         .released => if (selection.from == selection.to) {
                             self.cursor = .{ .at = selection.from };
+                            self.timer = 0;
                         },
                     },
 
@@ -427,6 +424,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return self.content.items;
         }
 
+        pub fn isActive(self: Self) bool {
+            return self.cursor != .none;
+        }
+
         pub fn popPath(self: *Self) Model.Error!void {
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
@@ -576,7 +577,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         fn mouseAt(self: Self, mouse_pos: clay.Vector2) ?usize {
             const bounds = main.getBounds(id) orelse return null;
             if (bounds.x <= mouse_pos.x and mouse_pos.x <= bounds.x + bounds.width) {
-                const chars: usize = @intFromFloat((mouse_pos.x - bounds.x) / char_px_width);
+                const chars: usize = @intFromFloat((mouse_pos.x - bounds.x - (char_px_width / 2)) / char_px_width);
                 return @min(chars, self.value().len);
             }
             return null;
