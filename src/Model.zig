@@ -315,8 +315,8 @@ fn delete(model: *Model, kind: Entries.Kind, name: []const u8) Error!void {
         const wide_path = unicode.wtf8ToWtf16LeAllocZ(main.alloc, path) catch return Error.DeleteFileFailure;
         defer main.alloc.free(wide_path);
         const wide_path_z = wide_path[0 .. wide_path.len + 1];
-        const wide_path_len_le = mem.nativeToLittle(usize, wide_path_z.len * @sizeOf(meta.Elem(@TypeOf(wide_path_z))));
-        meta_writer.writeAll(&mem.toBytes(math.lossyCast(u32, wide_path_len_le))) catch return Error.DeleteFileFailure;
+        const wide_path_len_le = math.lossyCast(u32, mem.nativeToLittle(usize, wide_path_z.len));
+        meta_writer.writeAll(&mem.toBytes(wide_path_len_le)) catch return Error.DeleteFileFailure;
         meta_writer.writeAll(mem.sliceAsBytes(wide_path_z)) catch return Error.DeleteFileFailure;
     }
 
