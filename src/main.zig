@@ -25,7 +25,8 @@ const Model = @import("Model.zig");
 const title = "Voyager" ++ if (is_debug) " (Debug)" else "";
 const width = 1200 + if (is_debug) 400 else 0;
 const height = 600;
-const mem_scale = 4;
+const unfocused_fps = 15;
+const mem_scale = 16;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
@@ -223,8 +224,10 @@ fn frame(model: *Model) void {
 
     model.update(Input.read()) catch |err| alert.update(err);
 
+    rl.setTargetFPS(if (rl.isWindowFocused()) 0 else unfocused_fps);
     rl.beginDrawing();
     defer rl.endDrawing();
+
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), raylib_alloc);
 

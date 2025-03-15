@@ -280,13 +280,13 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
 }
 
 pub fn init() Model.Error!Entries {
-    const expected_entries = 128;
+    const default_entry_cap = 128;
 
     var entries = Entries{
         .data = meta.FieldType(Entries, .data).initFill(.{}),
         .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, expected_entries * 8),
-        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, expected_entries),
+        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, default_entry_cap * 8),
+        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, default_entry_cap),
         .sortings = meta.FieldType(Entries, .sortings)
             .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
         .curr_sorting = .name,
@@ -298,7 +298,10 @@ pub fn init() Model.Error!Entries {
         .row_len = 1,
     };
     for (&entries.data.values) |*data| {
-        data.ensureTotalCapacity(main.alloc, expected_entries) catch return Model.Error.OutOfMemory;
+        data.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Model.Error.OutOfMemory;
+    }
+    for (&entries.sortings.values) |*sorting| {
+        for (&sorting.values) |*arr| arr.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Model.Error.OutOfMemory;
     }
 
     return entries;
@@ -312,27 +315,28 @@ pub fn deinit(entries: *Entries) void {
 }
 
 pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
-    if (!clay.pointerOver(container_id)) return null;
     entries.timer +|= input.delta_ms;
 
     if (input.clicked(.left)) {
-        inline for (comptime enums.values(Sorting)) |sorting| {
-            if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
-                if (entries.curr_sorting == sorting) {
-                    entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
-                } else {
-                    try entries.sort(sorting);
-                    entries.sort_type = .asc;
+        if (clay.pointerOver(container_id)) {
+            inline for (comptime enums.values(Sorting)) |sorting| {
+                if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
+                    if (entries.curr_sorting == sorting) {
+                        entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
+                    } else {
+                        try entries.sort(sorting);
+                        entries.sort_type = .asc;
+                    }
+                    return null;
                 }
-                return null;
             }
-        }
-        inline for (comptime kinds()) |kind| {
-            var sorted_iter = entries.sorted(kind, &.{});
-            var sorted_index: Index = 0;
-            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
-                if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
-                    return entries.select(true, kind, entry.index, input.ctrl, input.shift);
+            inline for (comptime kinds()) |kind| {
+                var sorted_iter = entries.sorted(kind, &.{});
+                var sorted_index: Index = 0;
+                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                    if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
+                        return entries.select(true, kind, entry.index, input.ctrl, input.shift);
+                    }
                 }
             }
         }
@@ -372,10 +376,16 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
 
                 .end => entries.selectLast(input.ctrl, input.shift),
 
+                .escape => {
+                    for (entries.data_slices.values) |slice| {
+                        for (slice.items(.selected)) |*unselect| unselect.* = false;
+                    }
+                },
+
                 .delete => {
                     for (kinds()) |kind| {
                         var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
-                        while (sorted_iter.next()) |entry| {
+                        while (sorted_iter.next()) |entry| { // TODO bulk delete
                             if (entry.selected) return .{ .delete = .{ .kind = kind, .name = entry.name } };
                         }
                     }
@@ -384,7 +394,7 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                 else => {},
             },
         }
-    } else {
+    } else if (clay.pointerOver(container_id)) {
         if (tooltip.update(input)) |writer| {
             inline for (comptime kinds()) |kind| {
                 var sorted_iter = entries.sorted(kind, &.{});
@@ -553,7 +563,7 @@ pub fn render(entries: Entries) void {
                             .corner_radius = main.rounded,
                         },
                     })({
-                        main.pointer();
+                        if (clay.pointerOver(entries_id)) main.pointer();
 
                         const icon_image = switch (kind) {
                             .dir => if (clay.hovered()) &resources.images.folder_open else &resources.images.folder,

@@ -98,7 +98,7 @@ pub fn update(model: *Model, input: Input) Error!void {
     if (input.action) |action| switch (action) {
         .mouse, .event => {},
         .key => |key| switch (key) {
-            .escape => try model.openParentDir(),
+            .backspace => try model.openParentDir(),
             else => {},
         },
     };
@@ -224,8 +224,8 @@ fn openVscode(model: Model) Error!void {
 // TODO if hard deleting, show confirmation modal
 // if recycling, add generated filename to undo history
 fn delete(model: *Model, kind: Entries.Kind, name: []const u8) Error!void {
-    if (kind == .dir) return Error.DeleteDirFailure;
-    if (!main.is_windows) return Error.OsNotSupported;
+    if (kind == .dir) return Error.DeleteDirFailure; // TODO
+    if (!main.is_windows) return Error.OsNotSupported; // TODO
 
     const delete_time = windows.getFileTime();
 
