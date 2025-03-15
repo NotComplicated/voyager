@@ -7,6 +7,7 @@ const testing = std.testing;
 const enums = std.enums;
 const heap = std.heap;
 const math = std.math;
+const fs = std.fs;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -34,6 +35,11 @@ pub const alloc = if (is_debug) logging_page_alloc.allocator() else heap.c_alloc
 var buf: [4096]u8 = undefined;
 var fba = heap.FixedBufferAllocator.init(&buf);
 const raylib_alloc = fba.allocator();
+
+const data_dirname = "VoyagerFM";
+const temp_dirname = "Temp";
+pub var data_path: []const u8 = undefined;
+pub var temp_path: []const u8 = undefined;
 
 const rl_config = rl.ConfigFlags{
     .vsync_hint = true,
@@ -155,7 +161,28 @@ pub fn newIdIndexed(key: []const u8, offset: u32) clay.Element.Config.Id {
     };
 }
 
+fn mkdir(path: []const u8) !void {
+    fs.makeDirAbsolute(path) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
+pub fn moveFile(old_path: []const u8, new_path: []const u8) !void {
+    return if (is_windows)
+        windows.moveFile(old_path, new_path)
+    else
+        @compileError("OS not supported yet");
+}
+
 pub fn main() !void {
+    data_path = try fs.getAppDataDir(alloc, data_dirname);
+    defer alloc.free(data_path);
+    try mkdir(data_path);
+    temp_path = try fs.path.join(alloc, &.{ data_path, temp_dirname });
+    defer alloc.free(temp_path);
+    try mkdir(temp_path);
+
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
     defer alloc.free(@as([*]u8, @ptrCast(arena.memory))[0..arena.capacity]);

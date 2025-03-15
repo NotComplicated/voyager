@@ -1,16 +1,24 @@
 const std = @import("std");
+const time = std.time;
 const win = std.os.windows;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 
 pub const Color = win.DWORD;
+pub const BufSize = win.ULONG;
+pub const String = ?win.LPSTR;
 
 pub const Event = enum {
     copy,
     paste,
     undo,
     redo,
+};
+
+pub const NameFormat = enum(win.INT) {
+    sam_compatible = 2,
+    display = 3,
 };
 
 const WNDPROC = @TypeOf(&newWindowProc);
@@ -36,6 +44,31 @@ pub const TIME_ZONE_INFORMATION = extern struct {
     daylight_bias: win.LONG,
 };
 
+pub const SID_IDENTIFIER_AUTHORITY = extern struct {
+    value: [6]win.BYTE,
+};
+
+pub const SID = extern struct {
+    revision: win.BYTE,
+    sub_authority_count: win.BYTE,
+    identifier_authority: SID_IDENTIFIER_AUTHORITY,
+    sub_authority: [1]win.DWORD,
+};
+
+pub const SID_NAME_USE = enum(win.INT) {
+    user = 1,
+    group,
+    domain,
+    alias,
+    well_known_group,
+    deleted_account,
+    invalid,
+    unknown,
+    computer,
+    label,
+    logon_session,
+};
+
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
 const copy_char = 'C' - 0x40;
@@ -44,6 +77,8 @@ const undo_char = 'Z' - 0x40;
 const redo_char = 'Y' - 0x40;
 var oldWindowProc: ?WNDPROC = null;
 pub var event: ?Event = null;
+
+pub const free = win.LocalFree;
 
 pub fn init() void {
     const handle = getHandle();
@@ -57,6 +92,20 @@ pub fn colorFromClay(color: clay.Color) Color {
 
 pub fn getHandle() win.HWND {
     return @ptrCast(rl.getWindowHandle());
+}
+
+pub fn getFileTime() win.FILETIME {
+    return win.nanoSecondsToFileTime(time.nanoTimestamp());
+}
+
+pub fn moveFile(old_path: []const u8, new_path: []const u8) !void {
+    const old_path_w = try win.sliceToPrefixedFileW(null, old_path);
+    const new_path_w = try win.sliceToPrefixedFileW(null, new_path);
+    return win.MoveFileExW(
+        old_path_w.span().ptr,
+        new_path_w.span().ptr,
+        win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH,
+    );
 }
 
 pub fn shellExecStatusMessage(status: usize) []const u8 {
@@ -90,7 +139,7 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
     return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
 }
 
-pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvAttr: win.LPCVOID, cbAttr: win.DWORD) win.HRESULT;
+pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) win.HRESULT;
 
 pub extern fn ShellExecuteA(
     hwnd: ?win.HWND,
@@ -103,6 +152,18 @@ pub extern fn ShellExecuteA(
 
 pub extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) win.DWORD;
 
+pub extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) win.BOOLEAN;
+pub extern fn LookupAccountNameA(
+    system_name: ?win.LPCSTR,
+    account_name: win.LPCSTR,
+    sid: ?*SID,
+    sid_len: *win.DWORD,
+    referenced_domain_name: ?win.LPSTR,
+    referenced_domain_name_len: *win.DWORD,
+    use: *SID_NAME_USE,
+) win.BOOL;
+pub extern fn ConvertSidToStringSidA(sid: *SID, string: *?win.LPSTR) win.BOOL;
+
 extern fn SetWindowLongPtrW(wnd: win.HWND, index: win.INT, newlong: win.LONG_PTR) win.LONG_PTR;
 extern fn GetWindowLongPtrW(wnd: win.HWND, index: win.INT) win.LONG_PTR;
-extern fn CallWindowProcW(lpPrevWndFunc: WNDPROC, win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) win.LRESULT;
+extern fn CallWindowProcW(prev_wnd_func: WNDPROC, win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) win.LRESULT;

@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) !void {
 
     if (target.result.os.tag == .windows) {
         exe.linkSystemLibrary("dwmapi");
+        exe.linkSystemLibrary("secur32");
         exe.subsystem = if (console) .Console else .Windows;
     }
 

@@ -1,7 +1,9 @@
 const std = @import("std");
 const process = std.process;
+const unicode = std.unicode;
 const enums = std.enums;
 const time = std.time;
+const math = std.math;
 const meta = std.meta;
 const fmt = std.fmt;
 const log = std.log;
@@ -25,11 +27,14 @@ entries: Entries,
 const Model = @This();
 
 pub const Error = error{
+    OutOfMemory,
     OsNotSupported,
     OutOfBounds,
     OpenDirFailure,
     DirAccessDenied,
-} || mem.Allocator.Error || process.Child.SpawnError;
+    DeleteDirFailure,
+    DeleteFileFailure,
+};
 
 pub const row_height = 30;
 const max_paste_len = 1024;
@@ -105,8 +110,11 @@ pub fn update(model: *Model, input: Input) Error!void {
     }
     if (try model.entries.update(input)) |message| {
         switch (message) {
-            .open_dir => |name| try model.openDir(name),
-            .open_file => |name| try model.openFile(name),
+            .open => |open| switch (open.kind) {
+                .dir => try model.openDir(open.name),
+                .file => try model.openFile(open.name),
+            },
+            .delete => |del| try model.delete(del.kind, del.name),
         }
     }
 }
@@ -202,12 +210,6 @@ fn openFile(model: Model, name: []const u8) Error!void {
     }
 }
 
-fn delete(model: *Model, name: []const u8) Error!void {
-    const path = try fs.path.joinZ(main.alloc, &.{ model.cwd.value(), name });
-    defer main.alloc.free(path);
-    try model.entries.loadEntries(model.cwd.value());
-}
-
 fn openVscode(model: Model) Error!void {
     if (main.is_windows) {
         const path = try main.alloc.dupeZ(u8, model.cwd.value());
@@ -219,70 +221,107 @@ fn openVscode(model: Model) Error!void {
     }
 }
 
-//         switch (key) {
-//             .escape => {
-//                 try model.open_parent_dir();
-//             },
-//             .up, .down => updown: {
-//                 for (Model.Entries.kinds()) |kind| {
-//                     var sorted = model.entries.sorted(kind, &.{.selected});
-//                     var sorted_index: Model.Index = 0;
-//                     while (sorted.next()) |entry| : (sorted_index += 1) {
-//                         if (entry.selected != null) {
-//                             // TODO handle going from one kind to the other
-//                             // TODO how to get next/prev?
-//                             // if (key == .up and sorted_index > 0) {
-//                             //     // model.select(kind, sort_list[sort_index - 1], .touch) catch |err| updateError(err);
-//                             //     break :updown;
-//                             // } else if (key == .down and sort_index < sort_list.len - 1) {
-//                             //     // model.select(kind, sort_list[sort_index + 1], .touch) catch |err| updateError(err);
-//                             //     break :updown;
-//                             // }
-//                             break :updown;
-//                         }
-//                     }
-//                 }
-//                 if (key == .down) {
-//                     // TODO bounds check the 0
-//                     // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-//                     //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-//                     //     else => updateError(err),
-//                     // };
-//                     clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-//                 }
-//             },
-//             // TODO select_top() / select_bottom() ?
-//             .home => {
-//                 // model.select(.dir, model.entries.sortings.get(model.entries.curr_sorting).get(.dir)[0], .touch) catch |err| switch (err) {
-//                 //     Model.Error.OutOfBounds => _ = model.select(.file, model.entries.sortings.get(model.entries.curr_sorting).get(.file)[0], .touch),
-//                 //     else => updateError(err),
-//                 // };
-//                 clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = 0;
-//             },
-//             .end => {
-//                 // TODO
-//                 // if (model.entries.list.len > 0) {
-//                 //     model.select(model.entries.list.len - 1, false) catch |err| updateError(err);
-//                 // }
-//                 clay.getScrollContainerData(clay.getId("Entries")).scroll_position.y = -100_000;
-//             },
-//             .enter => {
-//                 // TODO also support opening dirs?
-//                 for (model.entries.data_slices.get(.file).items(.selected), 0..) |selected, index| {
-//                     if (selected) |_| try model.open_file(@intCast(index));
-//                 }
-//             },
-//             .period => _ = model.entries.try_jump('.'),
-//             else => {},
-//         }
+// TODO if hard deleting, show confirmation modal
+// if recycling, add generated filename to undo history
+fn delete(model: *Model, kind: Entries.Kind, name: []const u8) Error!void {
+    if (kind == .dir) return Error.DeleteDirFailure;
+    if (!main.is_windows) return Error.OsNotSupported;
 
-//         // jump to entries when typing letters/numbers
-//         if (as_alpha) |alpha| {
-//             if (model.entries.try_jump(alpha) == .not_found) {
-//                 _ = model.entries.try_jump(ascii.toUpper(alpha));
-//             }
-//         } else if (as_num) |num| {
-//             _ = model.entries.try_jump(num);
-//         }
-//     }
-// }
+    const delete_time = windows.getFileTime();
+
+    const disk_designator = fs.path.diskDesignatorWindows(model.cwd.value());
+    if (disk_designator.len == 0) {
+        alert.updateFmt("Unexpected file path.", .{});
+        return;
+    }
+
+    const path = try fs.path.join(main.alloc, &.{ model.cwd.value(), name });
+    defer main.alloc.free(path);
+
+    const metadata = metadata: {
+        const file = fs.openFileAbsolute(path, .{}) catch |err| {
+            alert.update(err);
+            return;
+        };
+        defer file.close();
+        break :metadata file.metadata() catch |err| {
+            alert.update(err);
+            return;
+        };
+    };
+
+    var maybe_sid_string: windows.String = null;
+    defer if (maybe_sid_string) |sid_string| windows.free(sid_string);
+    sid: {
+        var username_buf: [128:0]u8 = undefined;
+        var username_size: windows.BufSize = @intCast(username_buf.len);
+        if (windows.GetUserNameExA(.sam_compatible, &username_buf, &username_size) == 0) break :sid;
+        var sid_bytes: [256]u8 = undefined;
+        const sid: *windows.SID = @ptrCast(mem.alignInBytes(&sid_bytes, @alignOf(windows.SID)).?);
+        var sid_size: windows.BufSize = @intCast(sid_bytes.len - (@intFromPtr(&sid_bytes) - @intFromPtr(sid)));
+        var domain_buf: [128:0]u8 = undefined;
+        var domain_size: windows.BufSize = @intCast(domain_buf.len);
+        var use: windows.SID_NAME_USE = undefined;
+        const res = windows.LookupAccountNameA(null, &username_buf, sid, &sid_size, &domain_buf, &domain_size, &use);
+        if (res == 0) break :sid;
+        if (windows.ConvertSidToStringSidA(sid, &maybe_sid_string) == 0) break :sid;
+    }
+    const sid_string = maybe_sid_string orelse return Error.DeleteFileFailure;
+    const sid_slice = mem.span(sid_string);
+
+    const recycle_path = try fs.path.joinZ(main.alloc, &.{ disk_designator, "$Recycle.Bin", sid_slice });
+    defer main.alloc.free(recycle_path);
+
+    var prng = std.Random.DefaultPrng.init(@bitCast(time.milliTimestamp()));
+    const rand = prng.random();
+    var trash_basename: [6]u8 = undefined;
+    for (&trash_basename) |*c| {
+        const n = rand.uintLessThan(u8, 36);
+        c.* = switch (n) {
+            0...9 => '0' + n,
+            10...35 => 'A' + (n - 10),
+            else => unreachable,
+        };
+    }
+
+    const ext = if (mem.lastIndexOfScalar(u8, name, '.')) |i| name[i..] else "";
+    const trash_path = try fmt.allocPrint(
+        main.alloc,
+        "{s}{c}$R{s}{s}",
+        .{ recycle_path, fs.path.sep, &trash_basename, ext },
+    );
+    defer main.alloc.free(trash_path);
+    const meta_path = try fmt.allocPrint(
+        main.alloc,
+        "{s}{c}$I{s}{s}",
+        .{ recycle_path, fs.path.sep, &trash_basename, ext },
+    );
+    defer main.alloc.free(meta_path);
+
+    const meta_temp_path = try fs.path.join(main.alloc, &.{ main.temp_path, name });
+    defer main.alloc.free(meta_temp_path);
+
+    {
+        const meta_file = fs.createFileAbsolute(meta_temp_path, .{}) catch |err| {
+            alert.update(err);
+            return;
+        };
+        defer meta_file.close();
+        const meta_writer = meta_file.writer();
+        meta_writer.writeAll(&(.{0x02} ++ .{0x00} ** 7)) catch return Error.DeleteFileFailure;
+        const size_le = mem.nativeToLittle(u64, metadata.size());
+        meta_writer.writeAll(&mem.toBytes(size_le)) catch return Error.DeleteFileFailure;
+        meta_writer.writeStructEndian(delete_time, .little) catch return Error.DeleteFileFailure;
+        const wide_path = unicode.wtf8ToWtf16LeAllocZ(main.alloc, path) catch return Error.DeleteFileFailure;
+        defer main.alloc.free(wide_path);
+        const wide_path_z = wide_path[0 .. wide_path.len + 1];
+        const wide_path_len_le = mem.nativeToLittle(usize, wide_path_z.len * @sizeOf(meta.Elem(@TypeOf(wide_path_z))));
+        meta_writer.writeAll(&mem.toBytes(math.lossyCast(u32, wide_path_len_le))) catch return Error.DeleteFileFailure;
+        meta_writer.writeAll(mem.sliceAsBytes(wide_path_z)) catch return Error.DeleteFileFailure;
+    }
+
+    main.moveFile(meta_temp_path, meta_path) catch return Error.DeleteFileFailure;
+    main.moveFile(path, trash_path) catch return Error.DeleteFileFailure;
+
+    try model.entries.loadEntries(model.cwd.value());
+}

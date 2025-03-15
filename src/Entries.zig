@@ -123,8 +123,8 @@ const Entry = struct {
 };
 
 const Message = union(enum) {
-    open_dir: []const u8,
-    open_file: []const u8,
+    open: struct { kind: Kind, name: []const u8 },
+    delete: struct { kind: Kind, name: []const u8 },
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
@@ -371,6 +371,15 @@ pub fn update(entries: *Entries, input: Input) Model.Error!?Message {
                 .home => entries.selectFirst(input.ctrl, input.shift),
 
                 .end => entries.selectLast(input.ctrl, input.shift),
+
+                .delete => {
+                    for (kinds()) |kind| {
+                        var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
+                        while (sorted_iter.next()) |entry| {
+                            if (entry.selected) return .{ .delete = .{ .kind = kind, .name = entry.name } };
+                        }
+                    }
+                },
 
                 else => {},
             },
@@ -861,13 +870,9 @@ fn select(
         entries.timer < main.double_click_delay)
     {
         // TODO allow multi-file open?
-        const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
-        const name = entries.names.items[name_start..name_end];
         entries.selection = null;
-        return switch (kind) {
-            .dir => .{ .open_dir = name },
-            .file => .{ .open_file = name },
-        };
+        const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
+        return .{ .open = .{ .kind = kind, .name = entries.names.items[name_start..name_end] } };
     }
     entries.timer = 0;
 
