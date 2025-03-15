@@ -5,6 +5,9 @@ const main = @import("main.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
 
+const clay = @import("clay");
+const rl = @import("raylib");
+
 tabs: std.ArrayListUnmanaged(Tab),
 curr_tab: u5,
 
@@ -21,6 +24,8 @@ pub const Error = error{
 };
 
 pub const row_height = 30;
+const tabs_height = 30;
+const max_tab_width = 240;
 
 pub fn init() Error!Model {
     var model = Model{
@@ -47,5 +52,48 @@ pub fn update(model: *Model, input: Input) Error!void {
 }
 
 pub fn render(model: Model) void {
-    model.tabs.items[model.curr_tab].render();
+    const width: usize = @intCast(rl.getScreenWidth());
+
+    clay.ui()(.{
+        .id = main.newId("Screen"),
+        .layout = .{
+            .sizing = clay.Element.Sizing.grow(.{}),
+            .layout_direction = .top_to_bottom,
+        },
+        .rectangle = .{ .color = main.theme.base },
+    })({
+        clay.ui()(.{
+            .id = main.newId("Tabs"),
+            .layout = .{
+                .sizing = .{
+                    .width = clay.Element.Sizing.Axis.grow(.{}),
+                    .height = clay.Element.Sizing.Axis.fixed(tabs_height),
+                },
+                .padding = clay.Padding.horizontal(8),
+                .child_alignment = .{ .y = .center },
+                .child_gap = 8,
+            },
+        })({
+            const tab_width = @min(width / model.tabs.items.len, max_tab_width);
+
+            for (model.tabs.items, 0..) |tab, index| {
+                clay.ui()(.{
+                    .id = main.newIdIndexed("Tab", @intCast(index)),
+                    .layout = .{
+                        .sizing = .{
+                            .width = clay.Element.Sizing.Axis.fixed(@floatFromInt(tab_width)),
+                            .height = clay.Element.Sizing.Axis.grow(.{}),
+                        },
+                        .child_alignment = .{ .x = .center, .y = .center },
+                    },
+                    .rectangle = .{ .color = main.theme.mantle, .corner_radius = main.rounded },
+                })({
+                    main.pointer();
+                    main.text(tab.tabName());
+                });
+            }
+        });
+
+        model.tabs.items[model.curr_tab].render();
+    });
 }

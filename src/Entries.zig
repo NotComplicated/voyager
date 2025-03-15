@@ -527,7 +527,7 @@ pub fn render(entries: Entries) void {
             .layout = .{
                 .padding = clay.Padding.all(10),
                 .sizing = .{
-                    .width = clay.Element.Sizing.Axis.grow(.{ .max = @floatFromInt(width - shortcuts_width) }),
+                    .width = clay.Element.Sizing.Axis.grow(.{ .max = @floatFromInt(width -| shortcuts_width) }),
                     .height = clay.Element.Sizing.Axis.grow(.{ .max = 1 }), // hacky fix for element leaking off-screen
                 },
                 .child_gap = 4,
@@ -688,7 +688,7 @@ pub fn render(entries: Entries) void {
     });
 }
 
-pub fn loadEntries(entries: *Entries, path: []const u8) Model.Error!void {
+pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
     if (!fs.path.isAbsolute(path)) return Model.Error.OpenDirFailure;
     const dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
         return if (err == error.AccessDenied) Model.Error.DirAccessDenied else Model.Error.OpenDirFailure;

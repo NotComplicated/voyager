@@ -23,6 +23,7 @@ const TextBox = @import("text_box.zig").TextBox;
 const Entries = @import("Entries.zig");
 
 cwd: TextBox(.path, main.newId("CurrentDir")),
+cached_cwd: std.ArrayListUnmanaged(u8),
 entries: Entries,
 
 const Tab = @This();
@@ -54,17 +55,19 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
 pub fn init(path: []const u8) Model.Error!Tab {
     var tab = Tab{
         .cwd = try meta.FieldType(Tab, .cwd).init(path),
+        .cached_cwd = try meta.FieldType(Tab, .cached_cwd).initCapacity(main.alloc, 256),
         .entries = try Entries.init(),
     };
     errdefer tab.deinit();
 
-    try tab.entries.loadEntries(path);
+    try tab.loadEntries(path);
 
     return tab;
 }
 
 pub fn deinit(tab: *Tab) void {
     tab.cwd.deinit();
+    tab.cached_cwd.deinit();
     tab.entries.deinit();
 }
 
@@ -78,7 +81,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!void {
             if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                 switch (button) {
                     .parent => try tab.openParentDir(),
-                    .refresh => try tab.entries.loadEntries(tab.cwd.value()),
+                    .refresh => try tab.loadEntries(tab.cwd.value()),
                     .vscode => try tab.openVscode(),
                 }
             }
@@ -89,7 +92,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!void {
 
     if (try tab.cwd.update(input)) |message| {
         switch (message) {
-            .submit => |path| try tab.entries.loadEntries(path),
+            .submit => |path| try tab.loadEntries(path),
         }
     }
 
@@ -114,12 +117,11 @@ pub fn update(tab: *Tab, input: Input) Model.Error!void {
 
 pub fn render(tab: Tab) void {
     clay.ui()(.{
-        .id = main.newId("Screen"),
+        .id = main.newId("TabContent"),
         .layout = .{
             .sizing = clay.Element.Sizing.grow(.{}),
             .layout_direction = .top_to_bottom,
         },
-        .rectangle = .{ .color = main.theme.base },
     })({
         clay.ui()(.{
             .id = main.newId("NavBar"),
@@ -171,14 +173,25 @@ pub fn render(tab: Tab) void {
     });
 }
 
-pub fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+pub fn tabName(tab: Tab) []const u8 {
+    return fs.path.basename(tab.cached_cwd.items);
+}
+
+fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
+    try tab.entries.load(path);
+    tab.cached_cwd.clearRetainingCapacity();
+    try tab.cached_cwd.appendSlice(main.alloc, path);
+}
+
+fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
     try fmt.format(writer, "\ncwd: {}\nentries: {}", .{ tab.cwd, tab.entries });
 }
 
 fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
+    try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.appendPath(name);
 
-    tab.entries.loadEntries(tab.cwd.value()) catch |err| switch (err) {
+    tab.loadEntries(tab.cwd.value()) catch |err| switch (err) {
         Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => {
             try tab.cwd.popPath();
             return err;
@@ -188,8 +201,9 @@ fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
 }
 
 fn openParentDir(tab: *Tab) Model.Error!void {
+    try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.popPath();
-    try tab.entries.loadEntries(tab.cwd.value());
+    try tab.loadEntries(tab.cwd.value());
 }
 
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {
@@ -316,5 +330,5 @@ fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
     main.moveFile(meta_temp_path, meta_path) catch return Model.Error.DeleteFileFailure;
     main.moveFile(path, trash_path) catch return Model.Error.DeleteFileFailure;
 
-    try tab.entries.loadEntries(tab.cwd.value());
+    try tab.loadEntries(tab.cwd.value());
 }

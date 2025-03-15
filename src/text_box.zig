@@ -428,6 +428,13 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return self.cursor != .none;
         }
 
+        pub fn set(self: *Self, new_value: []const u8) Model.Error!void {
+            self.content.clearRetainingCapacity();
+            try self.content.appendSlice(main.alloc, new_value);
+            self.cursor = .none;
+            try self.updateHistory();
+        }
+
         pub fn popPath(self: *Self) Model.Error!void {
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
