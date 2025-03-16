@@ -67,7 +67,7 @@ pub fn init(path: []const u8) Model.Error!Tab {
 
 pub fn deinit(tab: *Tab) void {
     tab.cwd.deinit();
-    tab.cached_cwd.deinit();
+    tab.cached_cwd.deinit(main.alloc);
     tab.entries.deinit();
 }
 
@@ -146,7 +146,7 @@ pub fn render(tab: Tab) void {
             .layout = .{
                 .sizing = clay.Element.Sizing.grow(.{}),
             },
-            .rectangle = .{ .color = main.theme.mantle },
+            .rectangle = .{ .color = main.theme.bg },
         })({
             const shortcut_width = 260; // TODO customizable
 
@@ -174,7 +174,14 @@ pub fn render(tab: Tab) void {
 }
 
 pub fn tabName(tab: Tab) []const u8 {
-    return fs.path.basename(tab.cached_cwd.items);
+    const basename = fs.path.basename(tab.cached_cwd.items);
+    return if (basename.len != 0)
+        basename
+    else if (main.is_windows) fs.path.diskDesignator(tab.cached_cwd.items) else "/";
+}
+
+pub fn clone(tab: Tab) Model.Error!Tab {
+    return Tab.init(tab.cached_cwd.items);
 }
 
 fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {

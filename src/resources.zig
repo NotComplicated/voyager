@@ -17,13 +17,22 @@ const font_filenames = .{
 pub const Font = meta.FieldEnum(@TypeOf(font_filenames));
 
 pub const FontSize = enum(u16) {
-    sm = 20,
-    md = 30,
-    lg = 40,
-    xl = 50,
+    sm = 18,
+    md = 20,
+    lg = 30,
+    xl = 40,
 };
 
 const image_filenames = .{
+    .x = "x.png",
+    .x_dim = "x-dim.png",
+    .tab_left = "tab-left.png",
+    .tab_left_bright = "tab-left-bright.png",
+    .tab_left_dim = "tab-left-dim.png",
+    .tab_right = "tab-right.png",
+    .tab_right_bright = "tab-right-bright.png",
+    .tab_right_dim = "tab-right-dim.png",
+    .plus = "plus.png",
     .add_file = "add-file.png",
     .arrow_up = "arrow-up.png",
     .clipboard = "clipboard.png",

@@ -356,12 +356,12 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 main.ibeam();
 
                 switch (self.cursor) {
-                    .none => main.textEx(.roboto_mono, .sm, self.content.items, main.theme.text),
+                    .none => main.textEx(.roboto_mono, .md, self.content.items, main.theme.text),
 
                     .at => |index| {
                         main.textEx(
                             .roboto_mono,
-                            .sm,
+                            .md,
                             self.content.items[0..index],
                             main.theme.text,
                         );
@@ -378,7 +378,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                             })({
                                 main.textEx(
                                     .roboto_mono,
-                                    .md,
+                                    .lg,
                                     "|",
                                     main.theme.bright_text,
                                 );
@@ -386,7 +386,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         }
                         main.textEx(
                             .roboto_mono,
-                            .sm,
+                            .md,
                             self.content.items[index..],
                             main.theme.text,
                         );
@@ -395,7 +395,7 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     .select => |selection| {
                         main.textEx(
                             .roboto_mono,
-                            .sm,
+                            .md,
                             self.content.items[0..selection.left()],
                             main.theme.text,
                         );
@@ -404,14 +404,14 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         })({
                             main.textEx(
                                 .roboto_mono,
-                                .sm,
+                                .md,
                                 self.content.items[selection.left()..selection.right()],
                                 main.theme.base,
                             );
                         });
                         main.textEx(
                             .roboto_mono,
-                            .sm,
+                            .md,
                             self.content.items[selection.right()..],
                             main.theme.text,
                         );

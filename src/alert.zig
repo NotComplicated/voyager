@@ -91,7 +91,7 @@ pub fn render() void {
                 .corner_radius = main.rounded,
             },
         })({
-            main.textEx(.roboto, .md, alert.msg.items, main.opacity(main.theme.text, alpha));
+            main.textEx(.roboto, .lg, alert.msg.items, main.opacity(main.theme.text, alpha));
         });
     }
 }

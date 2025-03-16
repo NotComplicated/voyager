@@ -69,6 +69,7 @@ pub const SID_NAME_USE = enum(win.INT) {
     logon_session,
 };
 
+pub const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
 const copy_char = 'C' - 0x40;

@@ -481,7 +481,7 @@ pub fn render(entries: Entries) void {
                             .child_gap = 6,
                         },
                         .rectangle = .{
-                            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.mantle,
+                            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.bg,
                             .corner_radius = main.rounded,
                         },
                     })({
@@ -758,7 +758,7 @@ pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
     entries.row_len = 1;
 }
 
-pub fn sorted(entries: *const Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
+pub fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
     return .{
         .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
         .slice = entries.data_slices.get(kind),
