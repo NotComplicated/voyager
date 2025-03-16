@@ -187,7 +187,7 @@ const entries_id = main.newId("Entries");
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
 const entries_x_offset = 455; // TODO this includes shortcut width
-const entries_y_offset = 134;
+const entries_y_offset = 74 + Model.row_height + Model.tabs_height;
 const min_name_chars = 16;
 const max_name_chars = 32;
 const type_chars = 12;
@@ -599,7 +599,7 @@ pub fn render(entries: Entries) void {
                             },
                         })({
                             if (entry.name.len > max_name_chars) {
-                                main.text(entry.name[0 .. max_name_chars - "...".len]);
+                                main.text(entry.name[0..max_name_chars -| "...".len]);
                                 main.text("...");
                             } else main.text(entry.name);
                         });

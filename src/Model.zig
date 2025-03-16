@@ -30,7 +30,7 @@ pub const Error = error{
 const TabIndex = u4;
 
 pub const row_height = 30;
-const tabs_height = 30;
+pub const tabs_height = 30;
 const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = main.newId("NewTab");
@@ -113,6 +113,7 @@ pub fn update(model: *Model, input: Input) Error!void {
 }
 
 pub fn render(model: Model) void {
+    const tabs_id = main.newId("Tabs");
     const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
 
     clay.ui()(.{
@@ -124,7 +125,7 @@ pub fn render(model: Model) void {
         .rectangle = .{ .color = main.theme.base },
     })({
         clay.ui()(.{
-            .id = main.newId("Tabs"),
+            .id = tabs_id,
             .layout = .{
                 .sizing = .{
                     .width = clay.Element.Sizing.Axis.grow(.{}),
@@ -176,7 +177,16 @@ pub fn render(model: Model) void {
                     })({});
 
                     clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.grow(.{}) } })({});
-                    main.textEx(.roboto, .sm, tab.tabName(), main.theme.dim_text);
+
+                    const name = tab.tabName();
+                    const chars = tab_width / 16;
+                    if (name.len > chars) {
+                        main.textEx(.roboto, .sm, name[0..chars -| "...".len], main.theme.dim_text);
+                        main.textEx(.roboto, .sm, "...", main.theme.dim_text);
+                    } else {
+                        main.textEx(.roboto, .sm, name, main.theme.dim_text);
+                    }
+
                     clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.grow(.{}) } })({});
 
                     clay.ui()(.{
@@ -213,6 +223,8 @@ pub fn render(model: Model) void {
             }
 
             if (model.tabs.items.len < max_tabs) {
+                const x_offset = @min(width - 8, model.tabs.items.len * tab_width);
+
                 clay.ui()(.{
                     .id = new_tab_id,
                     .layout = .{
@@ -221,6 +233,11 @@ pub fn render(model: Model) void {
                     .image = .{
                         .image_data = &resources.images.plus,
                         .source_dimensions = clay.Dimensions.square(tabs_height),
+                    },
+                    .floating = .{
+                        .offset = .{ .x = @floatFromInt(x_offset) },
+                        .z_index = 1,
+                        .parent_id = tabs_id.id,
                     },
                 })({
                     main.pointer();
