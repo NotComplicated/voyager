@@ -173,11 +173,11 @@ fn mkdir(path: []const u8) !void {
     };
 }
 
-pub fn moveFile(old_path: []const u8, new_path: []const u8) !void {
-    return if (is_windows)
-        windows.moveFile(old_path, new_path)
-    else
-        @compileError("OS not supported yet");
+pub fn move(old_path: [*:0]const u8, new_path: [*:0]const u8) !void {
+    if (!is_windows) @compileError("OS not supported");
+    if (windows.MoveFileExA(old_path, new_path, windows.move_flags) == 0) {
+        alert.updateFmt("\"{s}\"", .{windows.getLastError()});
+    }
 }
 
 pub fn main() !void {
@@ -230,7 +230,10 @@ fn frame(model: *Model) void {
             rl.closeWindow();
             return;
         },
-        else => alert.update(err),
+        else => {
+            if (is_debug) if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+            alert.update(err);
+        },
     };
 
     const new_focused = rl.isWindowFocused();

@@ -1,12 +1,14 @@
 const std = @import("std");
 const math = std.math;
 const meta = std.meta;
+const mem = std.mem;
 const fs = std.fs;
 
 const main = @import("main.zig");
 const resources = @import("resources.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
+const Entries = @import("Entries.zig");
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -109,7 +111,23 @@ pub fn update(model: *Model, input: Input) Error!void {
         else => {},
     };
 
-    try model.tabs.items[model.curr_tab].update(input);
+    if (try model.tabs.items[model.curr_tab].update(input)) |message| switch (message) {
+        .open_dirs => |names| {
+            defer main.alloc.free(names);
+            var names_iter = mem.tokenizeScalar(u8, names, '\x00');
+            const old_tab = model.curr_tab;
+            const first_name = names_iter.next();
+            while (names_iter.next()) |name| {
+                try model.newTab();
+                try model.tabs.items[model.curr_tab].openDir(name);
+                model.curr_tab = old_tab;
+            }
+            model.curr_tab = old_tab;
+            if (first_name) |name| {
+                try model.tabs.items[model.curr_tab].openDir(name);
+            }
+        },
+    };
 }
 
 pub fn render(model: Model) void {
@@ -223,7 +241,7 @@ pub fn render(model: Model) void {
             }
 
             if (model.tabs.items.len < max_tabs) {
-                const x_offset = @min(width - 8, model.tabs.items.len * tab_width);
+                const x_offset = @min(width - 8, model.tabs.items.len * tab_width + 4);
 
                 clay.ui()(.{
                     .id = new_tab_id,

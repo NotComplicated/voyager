@@ -28,6 +28,10 @@ entries: Entries,
 
 const Tab = @This();
 
+pub const Message = union(enum) {
+    open_dirs: []const u8,
+};
+
 const max_paste_len = 1024;
 const nav_buttons = .{
     .parent = main.newId("Parent"),
@@ -71,9 +75,9 @@ pub fn deinit(tab: *Tab) void {
     tab.entries.deinit();
 }
 
-pub fn update(tab: *Tab, input: Input) Model.Error!void {
+pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     if (main.is_debug and input.clicked(.middle)) {
-        log.debug("{}\n", .{tab});
+        log.debug("{}", .{tab});
     } else if (input.clicked(.side)) {
         try tab.openParentDir();
     } else if (input.clicked(.left)) {
@@ -107,12 +111,22 @@ pub fn update(tab: *Tab, input: Input) Model.Error!void {
     if (try tab.entries.update(input, !cwd_active)) |message| {
         switch (message) {
             .open => |open| switch (open.kind) {
-                .dir => try tab.openDir(open.name),
-                .file => try tab.openFile(open.name),
+                .dir => return .{ .open_dirs = open.names },
+                .file => {
+                    defer main.alloc.free(open.names);
+                    var names_iter = mem.tokenizeScalar(u8, open.names, '\x00');
+                    while (names_iter.next()) |name| try tab.openFile(name);
+                },
             },
-            .delete => |del| try tab.delete(del.kind, del.name),
+            .delete => |names| {
+                defer main.alloc.free(names);
+                var names_iter = mem.tokenizeScalar(u8, names, '\x00');
+                while (names_iter.next()) |name| try tab.delete(name);
+            },
         }
     }
+
+    return null;
 }
 
 pub fn render(tab: Tab) void {
@@ -194,7 +208,7 @@ fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: anytyp
     try fmt.format(writer, "\ncwd: {}\nentries: {}", .{ tab.cwd, tab.entries });
 }
 
-fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
+pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.appendPath(name);
 
@@ -214,14 +228,11 @@ fn openParentDir(tab: *Tab) Model.Error!void {
 }
 
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {
-    if (main.is_windows) {
-        const path = try fs.path.joinZ(main.alloc, &.{ tab.cwd.value(), name });
-        defer main.alloc.free(path);
-        const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, null, null, 0));
-        if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
-    } else {
-        return Model.Error.OsNotSupported;
-    }
+    if (!main.is_windows) return Model.Error.OsNotSupported;
+    const path = try fs.path.joinZ(main.alloc, &.{ tab.cwd.value(), name });
+    defer main.alloc.free(path);
+    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, null, null, 0));
+    if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
 }
 
 fn openVscode(tab: Tab) Model.Error!void {
@@ -237,8 +248,7 @@ fn openVscode(tab: Tab) Model.Error!void {
 
 // TODO if hard deleting, show confirmation modal
 // if recycling, add generated filename to undo history
-fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
-    if (kind == .dir) return Model.Error.DeleteDirFailure; // TODO
+fn delete(tab: *Tab, name: []const u8) Model.Error!void {
     if (!main.is_windows) return Model.Error.OsNotSupported; // TODO
 
     const delete_time = windows.getFileTime();
@@ -249,19 +259,36 @@ fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
         return;
     }
 
-    const path = try fs.path.join(main.alloc, &.{ tab.cwd.value(), name });
+    const path = try fs.path.joinZ(main.alloc, &.{ tab.cached_cwd.items, name });
     defer main.alloc.free(path);
 
+    var delete_error: Model.Error = undefined;
     const metadata = metadata: {
-        const file = fs.openFileAbsolute(path, .{}) catch |err| {
+        if (fs.openFileAbsolute(path, .{})) |file| {
+            defer file.close();
+            delete_error = Model.Error.DeleteFileFailure;
+            break :metadata file.metadata() catch return delete_error;
+        } else |err| if (err == error.IsDir) {
+            delete_error = Model.Error.DeleteDirFailure;
+            var dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch return delete_error;
+            defer dir.close();
+            var metadata = dir.metadata() catch return delete_error;
+            metadata.inner._size = 0;
+            var walker = dir.walk(main.alloc) catch return delete_error;
+            defer walker.deinit();
+            while (walker.next() catch return delete_error) |entry| {
+                if (entry.kind != .directory) {
+                    const file = entry.dir.openFile(entry.basename, .{}) catch return delete_error;
+                    defer file.close();
+                    const metadata_inner = file.metadata() catch return delete_error;
+                    metadata.inner._size += metadata_inner.size();
+                }
+            }
+            break :metadata metadata;
+        } else {
             alert.update(err);
             return;
-        };
-        defer file.close();
-        break :metadata file.metadata() catch |err| {
-            alert.update(err);
-            return;
-        };
+        }
     };
 
     var maybe_sid_string: windows.String = null;
@@ -280,7 +307,7 @@ fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
         if (res == 0) break :sid;
         if (windows.ConvertSidToStringSidA(sid, &maybe_sid_string) == 0) break :sid;
     }
-    const sid_string = maybe_sid_string orelse return Model.Error.DeleteFileFailure;
+    const sid_string = maybe_sid_string orelse return delete_error;
     const sid_slice = mem.span(sid_string);
 
     const recycle_path = try fs.path.joinZ(main.alloc, &.{ disk_designator, "$Recycle.Bin", sid_slice });
@@ -299,20 +326,20 @@ fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
     }
 
     const ext = if (mem.lastIndexOfScalar(u8, name, '.')) |i| name[i..] else "";
-    const trash_path = try fmt.allocPrint(
+    const trash_path = try fmt.allocPrintZ(
         main.alloc,
         "{s}{c}$R{s}{s}",
         .{ recycle_path, fs.path.sep, &trash_basename, ext },
     );
     defer main.alloc.free(trash_path);
-    const meta_path = try fmt.allocPrint(
+    const meta_path = try fmt.allocPrintZ(
         main.alloc,
         "{s}{c}$I{s}{s}",
         .{ recycle_path, fs.path.sep, &trash_basename, ext },
     );
     defer main.alloc.free(meta_path);
 
-    const meta_temp_path = try fs.path.join(main.alloc, &.{ main.temp_path, name });
+    const meta_temp_path = try fs.path.joinZ(main.alloc, &.{ main.temp_path, name });
     defer main.alloc.free(meta_temp_path);
 
     {
@@ -322,20 +349,20 @@ fn delete(tab: *Tab, kind: Entries.Kind, name: []const u8) Model.Error!void {
         };
         defer meta_file.close();
         const meta_writer = meta_file.writer();
-        meta_writer.writeAll(&(.{0x02} ++ .{0x00} ** 7)) catch return Model.Error.DeleteFileFailure;
+        meta_writer.writeAll(&(.{0x02} ++ .{0x00} ** 7)) catch return delete_error;
         const size_le = mem.nativeToLittle(u64, metadata.size());
-        meta_writer.writeAll(&mem.toBytes(size_le)) catch return Model.Error.DeleteFileFailure;
-        meta_writer.writeStructEndian(delete_time, .little) catch return Model.Error.DeleteFileFailure;
-        const wide_path = unicode.wtf8ToWtf16LeAllocZ(main.alloc, path) catch return Model.Error.DeleteFileFailure;
+        meta_writer.writeAll(&mem.toBytes(size_le)) catch return delete_error;
+        meta_writer.writeStructEndian(delete_time, .little) catch return delete_error;
+        const wide_path = unicode.wtf8ToWtf16LeAllocZ(main.alloc, path) catch return delete_error;
         defer main.alloc.free(wide_path);
         const wide_path_z = wide_path[0 .. wide_path.len + 1];
         const wide_path_len_le = math.lossyCast(u32, mem.nativeToLittle(usize, wide_path_z.len));
-        meta_writer.writeAll(&mem.toBytes(wide_path_len_le)) catch return Model.Error.DeleteFileFailure;
-        meta_writer.writeAll(mem.sliceAsBytes(wide_path_z)) catch return Model.Error.DeleteFileFailure;
+        meta_writer.writeAll(&mem.toBytes(wide_path_len_le)) catch return delete_error;
+        meta_writer.writeAll(mem.sliceAsBytes(wide_path_z)) catch return delete_error;
     }
 
-    main.moveFile(meta_temp_path, meta_path) catch return Model.Error.DeleteFileFailure;
-    main.moveFile(path, trash_path) catch return Model.Error.DeleteFileFailure;
+    main.move(meta_temp_path, meta_path) catch return delete_error;
+    main.move(path, trash_path) catch return delete_error;
 
     try tab.loadEntries(tab.cwd.value());
 }

@@ -45,6 +45,11 @@ pub const Kind = enum {
     file,
 };
 
+pub const Message = union(enum) {
+    open: struct { kind: Kind, names: []const u8 },
+    delete: []const u8,
+};
+
 const Timespan = union(enum) {
     just_now,
     past: struct { count: u7, metric: TimespanMetric },
@@ -120,11 +125,6 @@ const Entry = struct {
     created_millis: ?u64,
     modified_millis: u64,
     readonly: bool,
-};
-
-const Message = union(enum) {
-    open: struct { kind: Kind, name: []const u8 },
-    delete: struct { kind: Kind, name: []const u8 },
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
@@ -386,9 +386,15 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
                 .delete => {
                     for (kinds()) |kind| {
                         var sorted_iter = entries.sorted(kind, &.{ .name, .selected });
-                        while (sorted_iter.next()) |entry| { // TODO bulk delete
-                            if (entry.selected) return .{ .delete = .{ .kind = kind, .name = entry.name } };
+                        var names = std.ArrayList(u8).init(main.alloc);
+                        defer names.deinit();
+                        while (sorted_iter.next()) |entry| {
+                            if (entry.selected) {
+                                try names.appendSlice(entry.name);
+                                try names.append('\x00');
+                            }
                         }
+                        if (names.items.len > 0) return .{ .delete = try names.toOwnedSlice() };
                     }
                 },
 
@@ -430,6 +436,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
             }
         }
     }
+
     return null;
 }
 
@@ -874,16 +881,22 @@ fn select(
     index: Index,
     multi: bool,
     bulk: bool,
-) if (clicked) ?Message else void {
+) if (clicked) Model.Error!?Message else void {
     if (clicked and
         entries.selection != null and
         meta.eql(entries.selection.?.to, .{ kind, index }) and
         entries.timer < main.double_click_delay)
     {
-        // TODO allow multi-file open?
-        entries.selection = null;
-        const name_start, const name_end = entries.data_slices.get(kind).items(.name)[index];
-        return .{ .open = .{ .kind = kind, .name = entries.names.items[name_start..name_end] } };
+        var names = std.ArrayList(u8).init(main.alloc);
+        defer names.deinit();
+        var sorted_iter = entries.sorted(kind, &.{ .selected, .name });
+        while (sorted_iter.next()) |entry| {
+            if (entry.selected) {
+                try names.appendSlice(entry.name);
+                try names.append('\x00');
+            }
+        }
+        return .{ .open = .{ .kind = kind, .names = try names.toOwnedSlice() } };
     }
     entries.timer = 0;
 

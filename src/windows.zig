@@ -69,6 +69,7 @@ pub const SID_NAME_USE = enum(win.INT) {
     logon_session,
 };
 
+pub const move_flags = win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH;
 pub const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
@@ -99,14 +100,8 @@ pub fn getFileTime() win.FILETIME {
     return win.nanoSecondsToFileTime(time.nanoTimestamp());
 }
 
-pub fn moveFile(old_path: []const u8, new_path: []const u8) !void {
-    const old_path_w = try win.sliceToPrefixedFileW(null, old_path);
-    const new_path_w = try win.sliceToPrefixedFileW(null, new_path);
-    return win.MoveFileExW(
-        old_path_w.span().ptr,
-        new_path_w.span().ptr,
-        win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH,
-    );
+pub fn getLastError() []const u8 {
+    return @tagName(win.kernel32.GetLastError());
 }
 
 pub fn shellExecStatusMessage(status: usize) []const u8 {
@@ -139,6 +134,8 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
     }
     return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
 }
+
+pub extern fn MoveFileExA(old: win.LPCSTR, new: win.LPCSTR, flags: win.DWORD) win.BOOL;
 
 pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) win.HRESULT;
 
