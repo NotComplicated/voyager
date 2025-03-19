@@ -99,6 +99,10 @@ pub fn update(model: *Model, input: Input) Error!void {
                 },
                 else => {},
             },
+            .f => |f| switch (f) {
+                5 => try model.currTab().reloadEntries(),
+                else => {},
+            },
             .tab => if (input.ctrl) {
                 const last_tab: TabIndex = @intCast(model.tabs.items.len - 1);
                 model.curr_tab = if (input.shift)
@@ -111,7 +115,7 @@ pub fn update(model: *Model, input: Input) Error!void {
         else => {},
     };
 
-    if (try model.tabs.items[model.curr_tab].update(input)) |message| switch (message) {
+    if (try model.currTab().update(input)) |message| switch (message) {
         .open_dirs => |names| {
             defer main.alloc.free(names);
             var names_iter = mem.tokenizeScalar(u8, names, '\x00');
@@ -119,12 +123,12 @@ pub fn update(model: *Model, input: Input) Error!void {
             const first_name = names_iter.next();
             while (names_iter.next()) |name| {
                 try model.newTab();
-                try model.tabs.items[model.curr_tab].openDir(name);
+                try model.currTab().openDir(name);
                 model.curr_tab = old_tab;
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
-                try model.tabs.items[model.curr_tab].openDir(name);
+                try model.currTab().openDir(name);
             }
         },
     };
@@ -263,13 +267,17 @@ pub fn render(model: Model) void {
             }
         });
 
-        model.tabs.items[model.curr_tab].render();
+        model.currTab().render();
     });
+}
+
+fn currTab(model: anytype) if (@TypeOf(model) == *Model) *Tab else *const Tab {
+    return &model.tabs.items[model.curr_tab];
 }
 
 fn newTab(model: *Model) Error!void {
     if (model.tabs.items.len == max_tabs) return;
-    var new_tab = try model.tabs.items[model.curr_tab].clone();
+    var new_tab = try model.currTab().clone();
     errdefer new_tab.deinit();
     try model.tabs.append(main.alloc, new_tab);
     model.curr_tab = @intCast(model.tabs.items.len - 1);

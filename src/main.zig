@@ -13,6 +13,7 @@ const clay = @import("clay");
 const renderer = clay.renderers.raylib;
 const rl = @import("raylib");
 
+const ops = @import("ops.zig");
 const windows = @import("windows.zig");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
@@ -166,27 +167,13 @@ pub fn newIdIndexed(key: []const u8, offset: u32) clay.Element.Config.Id {
     };
 }
 
-fn mkdir(path: []const u8) !void {
-    fs.makeDirAbsolute(path) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err,
-    };
-}
-
-pub fn move(old_path: [*:0]const u8, new_path: [*:0]const u8) !void {
-    if (!is_windows) @compileError("OS not supported");
-    if (windows.MoveFileExA(old_path, new_path, windows.move_flags) == 0) {
-        alert.updateFmt("\"{s}\"", .{windows.getLastError()});
-    }
-}
-
 pub fn main() !void {
     data_path = try fs.getAppDataDir(alloc, data_dirname);
     defer alloc.free(data_path);
-    try mkdir(data_path);
+    try ops.mkdir(data_path);
     temp_path = try fs.path.join(alloc, &.{ data_path, temp_dirname });
     defer alloc.free(temp_path);
-    try mkdir(temp_path);
+    try ops.mkdir(temp_path);
 
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());

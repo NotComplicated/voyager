@@ -169,6 +169,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                 }
                             },
 
+                            .f => |_| {},
+
                             .delete => if (index < self.value().len)
                                 if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
 
@@ -278,6 +280,8 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                                 self.cursor = .{ .at = selection.left() + 1 };
                             }
                         },
+
+                        .f => |_| {},
 
                         .delete, .backspace => self.removeCursor(),
 

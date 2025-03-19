@@ -19,6 +19,7 @@ action: ?union(enum) {
     },
     key: union(enum) {
         char: u8,
+        f: u4,
         delete,
         backspace,
         home,
@@ -106,6 +107,7 @@ pub fn read() Input {
         @intCast(key_int - (320 - 48))
     else
         null;
+    const as_f: ?u4 = if (290 <= key_int and key_int <= 301) @intCast(key_int - 290 + 1) else null;
     const as_punc: ?u8 = switch (key) {
         .apostrophe => '\'',
         .comma => ',',
@@ -159,6 +161,8 @@ pub fn read() Input {
 
     input.action = if (maybe_char) |char|
         .{ .key = .{ .char = char } }
+    else if (as_f) |f|
+        .{ .key = .{ .f = f } }
     else switch (key) {
         .delete => .{ .key = .delete },
         .backspace => .{ .key = .backspace },
