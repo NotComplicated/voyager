@@ -107,9 +107,22 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     }
 
     if (input.action) |action| if (!cwd_active) switch (action) {
-        .mouse, .event => {},
+        .mouse => {},
+        .event => |event| if (main.is_windows) switch (event) {
+            .copy => {},
+            .paste => {},
+            .undo => {
+                try tab.undoDelete();
+                return null;
+            },
+            .redo => {},
+        },
         .key => |key| switch (key) {
             .char => |c| if (input.ctrl) switch (c) {
+                'z' => {
+                    if (main.is_windows) try tab.undoDelete();
+                    return null;
+                },
                 'l' => {
                     tab.cwd.focus();
                     return null;
@@ -145,7 +158,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                     while (names_iter.next()) |name| {
                         try tab.cached_cwd.appendSlice(main.alloc, name.ptr[0 .. name.len + 1]);
                         defer tab.cached_cwd.resize(main.alloc, dir_len) catch unreachable;
-                        const recycle_id = try ops.delete(@ptrCast(tab.cached_cwd.items)) orelse continue;
+                        const recycle_id = try ops.delete(tab.cached_cwd.items[0 .. tab.cached_cwd.items.len - 1 :0]) orelse continue;
                         if (new_del_event) |*del_event| switch (del_event.*) {
                             .single => |single| {
                                 try recycle_ids.append(single);
@@ -267,8 +280,19 @@ pub fn reloadEntries(tab: *Tab) Model.Error!void {
     try tab.entries.load(tab.cached_cwd.items);
 }
 
-fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
-    try fmt.format(writer, "\ncwd: {}\nentries: {}", .{ tab.cwd, tab.entries });
+pub fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
+    try fmt.format(writer, "\ncwd: {}", .{tab.cwd});
+    try fmt.format(writer, "\nentries: {}", .{tab.entries});
+    if (tab.del_history.len > 0) {
+        try fmt.format(writer, "\ndeletes:", .{});
+        for (tab.del_history.slice()) |del| switch (del) {
+            .single => |id| try fmt.format(writer, "\t{s}\n", .{id}),
+            .multiple => |multiple| {
+                for (multiple) |id| try fmt.format(writer, "\t{s}", .{id});
+                try writer.writeByte('\n');
+            },
+        };
+    }
 }
 
 pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
@@ -309,9 +333,16 @@ fn openVscode(tab: Tab) Model.Error!void {
     }
 }
 
-fn undoDelete(tab: *Tab) if (main.is_window) Model.Error!void else @compileError("OS not supported") {
-    const id = tab.del_history.popOrNull() orelse return;
-    const disk_designator = fs.path.diskDesignator(tab.cached_cwd.items);
-    if (disk_designator.len != 2) return alert.updateFmt("Invalid location.");
-    try ops.restore(disk_designator[0], id);
+fn undoDelete(tab: *Tab) if (main.is_windows) Model.Error!void else @compileError("OS not supported") {
+    const disk = fs.path.diskDesignator(tab.cached_cwd.items);
+    if (disk.len == 0) return Model.Error.RestoreFailure;
+    const del_event = tab.del_history.popOrNull() orelse return;
+    switch (del_event) {
+        .single => |id| try ops.restore(disk[0], &.{id}),
+        .multiple => |ids| {
+            defer main.alloc.free(ids);
+            try ops.restore(disk[0], ids);
+        },
+    }
+    try tab.reloadEntries();
 }
