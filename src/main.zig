@@ -61,7 +61,7 @@ pub fn opacity(color: clay.Color, alpha: f32) clay.Color {
 
 pub const theme = .{
     .alert = rgb(247, 55, 87),
-    .dim_text = rgb(187, 190, 204),
+    .dim_text = rgb(164, 168, 184),
     .text = rgb(205, 214, 244),
     .bright_text = rgb(255, 255, 255),
     .highlight = rgb(203, 166, 247),

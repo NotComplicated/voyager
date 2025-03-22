@@ -140,7 +140,8 @@ fn writeRecycleMeta(path: []const u8, meta: windows.RecycleMeta) !void {
     try buf_writer.flush();
 }
 
-pub fn readRecycleMeta(path: []const u8) if (main.is_windows) Model.Error!windows.RecycleMeta else @compileError("OS not supported") {
+pub fn readRecycleMeta(path: []const u8) Model.Error!windows.RecycleMeta {
+    if (!main.is_windows) @compileError("OS not supported");
     const file = fs.openFileAbsolute(path, .{}) catch return Model.Error.RestoreFailure;
     defer file.close();
 

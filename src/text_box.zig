@@ -1,6 +1,8 @@
 const std = @import("std");
 const ascii = std.ascii;
+const math = std.math;
 const meta = std.meta;
+const sort = std.sort;
 const time = std.time;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -14,14 +16,20 @@ const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Element.Config.Id) type {
+pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
     return struct {
         content: std.ArrayListUnmanaged(u8),
         cursor: Cursor,
         timer: u32,
         history: std.BoundedArray(struct { content: std.ArrayListUnmanaged(u8), cursor: Cursor }, max_history),
+        tab_complete: if (kind == .path) struct {
+            completions: std.ArrayListUnmanaged([2]u32),
+            names: std.ArrayListUnmanaged(u8),
+            state: union(enum) { unloaded, selecting: usize, just_updated: usize },
+        } else void,
 
         const max_history = 16;
+        const max_completions_search = 512;
         const max_len = if (kind == .path) 512 else 2048;
         const max_paste_len = if (kind == .path) 512 else 1024;
         const char_px_width = 9;
@@ -65,8 +73,19 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                 .cursor = .none,
                 .timer = 0,
                 .history = .{},
+                .tab_complete = if (kind == .path) .{
+                    .completions = try std.ArrayListUnmanaged([2]u32).initCapacity(main.alloc, 256),
+                    .names = try std.ArrayListUnmanaged(u8).initCapacity(main.alloc, 256 * 8),
+                    .state = .unloaded,
+                } else {},
             };
-            errdefer text_box.content.deinit(main.alloc);
+            errdefer {
+                text_box.content.deinit(main.alloc);
+                if (kind == .path) {
+                    text_box.tab_complete.completions.deinit(main.alloc);
+                    text_box.tab_complete.names.deinit(main.alloc);
+                }
+            }
 
             try text_box.content.appendSlice(main.alloc, contents);
 
@@ -82,6 +101,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             self.content.deinit(main.alloc);
             for (self.history.slice()) |*hist| hist.content.deinit(main.alloc);
             for (self.history.unusedCapacitySlice()) |*hist| hist.content.deinit(main.alloc);
+            if (kind == .path) {
+                self.tab_complete.completions.deinit(main.alloc);
+                self.tab_complete.names.deinit(main.alloc);
+            }
         }
 
         pub fn update(self: *Self, input: Input) Model.Error!?Message {
@@ -100,6 +123,10 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             if (maybe_updated) {
                 self.timer = 0;
                 try self.updateHistory();
+                if (kind == .path) self.tab_complete.state = switch (self.tab_complete.state) {
+                    .unloaded, .selecting => .unloaded,
+                    .just_updated => |current| .{ .selecting = current },
+                };
             }
 
             if (maybe_message) |message| {
@@ -129,102 +156,124 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                     }
                 },
 
-                .at => |index| {
-                    switch (input.action orelse return null) {
-                        .mouse => if (input.clicked(.left)) {
-                            if (clay.pointerOver(id)) {
-                                if (self.mouseAt(input.mouse_pos)) |at| {
-                                    self.cursor = .{
-                                        .select = if (at == index and self.timer < main.double_click_delay)
-                                            .{ .from = 0, .to = self.value().len }
-                                        else
-                                            .{ .from = if (input.shift) index else at, .to = at },
-                                    };
-                                    self.timer = 0;
+                .at => |index| switch (input.action orelse return null) {
+                    .mouse => if (input.clicked(.left)) {
+                        if (clay.pointerOver(id)) {
+                            if (self.mouseAt(input.mouse_pos)) |at| {
+                                self.cursor = .{
+                                    .select = if (at == index and self.timer < main.double_click_delay)
+                                        .{ .from = 0, .to = self.value().len }
+                                    else
+                                        .{ .from = if (input.shift) index else at, .to = at },
+                                };
+                                self.timer = 0;
+                            }
+                        } else {
+                            self.cursor = .none;
+                        }
+                    },
+
+                    .key => |key| switch (key) {
+                        .char => |char| {
+                            if (input.ctrl) {
+                                switch (char) {
+                                    'v' => try self.paste(index, 0),
+                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
+                                    'z' => {
+                                        maybe_updated.* = false;
+                                        try self.undo();
+                                    },
+                                    'y' => {
+                                        maybe_updated.* = false;
+                                        try self.redo();
+                                    },
+                                    else => {},
                                 }
                             } else {
-                                self.cursor = .none;
+                                try self.content.insert(main.alloc, index, char);
+                                self.cursor.at += 1;
                             }
                         },
 
-                        .key => |key| switch (key) {
-                            .char => |char| {
-                                if (input.ctrl) {
-                                    switch (char) {
-                                        'v' => try self.paste(index, 0),
-                                        'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
-                                        'z' => {
-                                            maybe_updated.* = false;
-                                            try self.undo();
-                                        },
-                                        'y' => {
-                                            maybe_updated.* = false;
-                                            try self.redo();
-                                        },
-                                        else => {},
-                                    }
-                                } else {
-                                    try self.content.insert(main.alloc, index, char);
-                                    self.cursor.at += 1;
-                                }
-                            },
+                        .f => |_| {},
 
-                            .f => |_| {},
+                        .delete => if (index < self.value().len)
+                            if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
 
-                            .delete => if (index < self.value().len)
-                                if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
-
-                            .backspace => if (input.ctrl)
-                                self.removeCursorToPrevSep()
-                            else if (index > 0) {
-                                self.cursor.at -= 1;
-                                self.removeCursor();
-                            },
-
-                            .escape, .tab => self.cursor = .none,
-
-                            .enter => return .{ .submit = self.value() },
-
-                            .up, .home => self.cursor = if (input.shift)
-                                .{ .select = .{ .from = index, .to = 0 } }
-                            else
-                                .{ .at = 0 },
-
-                            .down, .end => self.cursor = if (input.shift)
-                                .{ .select = .{ .from = index, .to = self.value().len } }
-                            else
-                                .{ .at = self.value().len },
-
-                            .left => {
-                                const dest = if (input.ctrl)
-                                    toPrevSep(self.value(), index)
-                                else
-                                    index -| 1;
-                                self.cursor = if (input.shift)
-                                    .{ .select = .{ .from = index, .to = dest } }
-                                else
-                                    .{ .at = dest };
-                            },
-
-                            .right => {
-                                const dest = if (input.ctrl)
-                                    toNextSep(self.value(), index)
-                                else
-                                    index + @intFromBool(index < self.value().len);
-                                self.cursor = if (input.shift)
-                                    .{ .select = .{ .from = index, .to = dest } }
-                                else
-                                    .{ .at = dest };
-                            },
+                        .backspace => if (input.ctrl)
+                            self.removeCursorToPrevSep()
+                        else if (index > 0) {
+                            self.cursor.at -= 1;
+                            self.removeCursor();
                         },
 
-                        .event => |event| if (main.is_windows) switch (event) {
-                            .copy => {},
-                            .paste => try self.paste(index, 0),
-                            .undo => try self.undo(),
-                            .redo => try self.redo(),
+                        .escape => self.cursor = .none,
+
+                        .tab => if (kind == .path) self.updateCompletions(if (input.shift) .backward else .forward) else {
+                            self.cursor = .none;
                         },
-                    }
+
+                        .enter => {
+                            if (kind == .path) switch (self.tab_complete.state) {
+                                .unloaded, .just_updated => {},
+                                .selecting => |current| {
+                                    const start, const end = self.tab_complete.completions.items[current];
+                                    try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
+                                    self.cursor = .{ .at = self.value().len };
+                                    return null;
+                                },
+                            };
+                            return .{ .submit = self.value() };
+                        },
+
+                        .up, .home => self.cursor = if (input.shift)
+                            .{ .select = .{ .from = index, .to = 0 } }
+                        else
+                            .{ .at = 0 },
+
+                        .down, .end => self.cursor = if (input.shift)
+                            .{ .select = .{ .from = index, .to = self.value().len } }
+                        else
+                            .{ .at = self.value().len },
+
+                        .left => {
+                            const dest = if (input.ctrl)
+                                toPrevSep(self.value(), index)
+                            else
+                                index -| 1;
+                            self.cursor = if (input.shift)
+                                .{ .select = .{ .from = index, .to = dest } }
+                            else
+                                .{ .at = dest };
+                        },
+
+                        .right => {
+                            if (kind == .path) switch (self.tab_complete.state) {
+                                .unloaded, .just_updated => {},
+                                .selecting => |current| {
+                                    const start, const end = self.tab_complete.completions.items[current];
+                                    try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
+                                    self.cursor = .{ .at = self.value().len };
+                                    return null;
+                                },
+                            };
+                            const dest = if (input.ctrl)
+                                toNextSep(self.value(), index)
+                            else
+                                index + @intFromBool(index < self.value().len);
+                            self.cursor = if (input.shift)
+                                .{ .select = .{ .from = index, .to = dest } }
+                            else
+                                .{ .at = dest };
+                        },
+                    },
+
+                    .event => |event| if (main.is_windows) switch (event) {
+                        .copy => {},
+                        .paste => try self.paste(index, 0),
+                        .undo => try self.undo(),
+                        .redo => try self.redo(),
+                    },
                 },
 
                 .select => |selection| switch (input.action orelse return null) {
@@ -285,7 +334,11 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
 
                         .delete, .backspace => self.removeCursor(),
 
-                        .escape, .tab => self.cursor = .none,
+                        .escape => self.cursor = .none,
+
+                        .tab => if (kind == .path) self.updateCompletions(if (input.shift) .backward else .forward) else {
+                            self.cursor = .none;
+                        },
 
                         .enter => return .{ .submit = self.value() },
 
@@ -421,6 +474,19 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
                         );
                     },
                 }
+
+                if (kind == .path) switch (self.tab_complete.state) {
+                    .unloaded => {},
+                    .selecting, .just_updated => |current| {
+                        const start, const end = self.tab_complete.completions.items[current];
+                        main.textEx(
+                            .roboto_mono,
+                            .md,
+                            self.tab_complete.names.items[start..end],
+                            main.theme.dim_text,
+                        );
+                    },
+                };
             });
         }
 
@@ -590,6 +656,70 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             }
         }
 
+        fn updateCompletions(self: *Self, direction: enum { forward, backward }) void {
+            if (kind != .path) @compileError("updateCompletions only works on paths");
+
+            switch (self.tab_complete.state) {
+                .just_updated => {},
+
+                .selecting => |current| self.tab_complete.state = .{
+                    .just_updated = if (direction == .forward)
+                        (current + 1) % self.tab_complete.completions.items.len
+                    else if (current == 0) self.tab_complete.completions.items.len - 1 else current - 1,
+                },
+
+                .unloaded => {
+                    self.tab_complete.completions.clearRetainingCapacity();
+                    self.tab_complete.names.clearRetainingCapacity();
+
+                    const last_sep = if (main.is_windows)
+                        mem.lastIndexOfAny(u8, self.value(), &.{ fs.path.sep, fs.path.sep_posix }) orelse return
+                    else
+                        mem.lastIndexOfScalar(u8, self.value(), fs.path.sep) orelse return;
+                    const prefix = self.value()[last_sep + 1 ..];
+                    const dir_path = fs.realpathAlloc(main.alloc, self.value()[0..last_sep]) catch return;
+                    defer main.alloc.free(dir_path);
+
+                    var dir = fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
+                    defer dir.close();
+                    var entries = dir.iterate();
+                    var suggest_enter_dir = false;
+                    var i: usize = 0;
+                    while (entries.next() catch return) |entry| : (i += 1) {
+                        if (i == max_completions_search) break;
+                        if (entry.kind == .directory and ascii.eqlIgnoreCase(entry.name, prefix)) {
+                            suggest_enter_dir = true;
+                        } else if (ascii.startsWithIgnoreCase(entry.name, prefix)) {
+                            const start = math.lossyCast(u32, self.tab_complete.names.items.len);
+                            self.tab_complete.names.appendSlice(main.alloc, entry.name[prefix.len..]) catch return;
+                            const end = math.lossyCast(u32, self.tab_complete.names.items.len);
+                            self.tab_complete.completions.append(main.alloc, .{ start, end }) catch return;
+                        }
+                    }
+                    if (suggest_enter_dir) {
+                        const start = math.lossyCast(u32, self.tab_complete.names.items.len);
+                        self.tab_complete.names.append(main.alloc, fs.path.sep) catch return;
+                        self.tab_complete.completions.append(main.alloc, .{ start, start + 1 }) catch return;
+                    }
+                    if (self.tab_complete.completions.items.len == 0) return;
+
+                    sort.pdq(
+                        meta.Child(@TypeOf(self.tab_complete.completions.items)),
+                        self.tab_complete.completions.items,
+                        self.tab_complete.names.items,
+                        struct {
+                            fn f(names: []const u8, lhs: [2]u32, rhs: [2]u32) bool {
+                                return ascii.lessThanIgnoreCase(names[lhs[0]..lhs[1]], names[rhs[0]..rhs[1]]);
+                            }
+                        }.f,
+                    );
+
+                    self.tab_complete.state = .{ .just_updated = 0 };
+                    self.cursor = .{ .at = self.value().len };
+                },
+            }
+        }
+
         fn mouseAt(self: Self, mouse_pos: clay.Vector2) ?usize {
             const bounds = main.getBounds(id) orelse return null;
             if (bounds.x <= mouse_pos.x and mouse_pos.x <= bounds.x + bounds.width) {
@@ -599,10 +729,17 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return null;
         }
 
+        fn seps() []const u8 {
+            return switch (kind) {
+                .path => if (main.is_windows) &.{ fs.path.sep_posix, fs.path.sep },
+                .text => " ",
+            };
+        }
+
         fn toNextSep(string: []const u8, index: usize) usize {
-            if (mem.indexOfScalarPos(u8, string, index, @intFromEnum(kind))) |next_sep| {
+            if (mem.indexOfAnyPos(u8, string, index, seps())) |next_sep| {
                 return if (index == next_sep)
-                    mem.indexOfScalarPos(u8, string, index + 1, @intFromEnum(kind)) orelse string.len
+                    mem.indexOfAnyPos(u8, string, index + 1, seps()) orelse string.len
                 else
                     next_sep;
             } else {
@@ -611,9 +748,9 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
         }
 
         fn toPrevSep(string: []const u8, index: usize) usize {
-            if (mem.lastIndexOfScalar(u8, string[0..index], @intFromEnum(kind))) |prev_sep| {
+            if (mem.lastIndexOfAny(u8, string[0..index], seps())) |prev_sep| {
                 return if (index == prev_sep + 1)
-                    mem.lastIndexOfScalar(u8, string[0 .. index - 1], @intFromEnum(kind)) orelse 0
+                    mem.lastIndexOfAny(u8, string[0 .. index - 1], seps()) orelse 0
                 else
                     prev_sep;
             } else {

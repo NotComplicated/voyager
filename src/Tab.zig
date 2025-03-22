@@ -333,7 +333,8 @@ fn openVscode(tab: Tab) Model.Error!void {
     }
 }
 
-fn undoDelete(tab: *Tab) if (main.is_windows) Model.Error!void else @compileError("OS not supported") {
+fn undoDelete(tab: *Tab) Model.Error!void {
+    if (!main.is_windows) @compileError("OS not supported");
     const disk = fs.path.diskDesignator(tab.cached_cwd.items);
     if (disk.len == 0) return Model.Error.RestoreFailure;
     const del_event = tab.del_history.popOrNull() orelse return;
