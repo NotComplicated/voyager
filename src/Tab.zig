@@ -22,6 +22,7 @@ const Entries = @import("Entries.zig");
 
 cwd: TextBox(.path, main.newId("CurrentDir")),
 cached_cwd: std.ArrayListUnmanaged(u8),
+del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
 entries: Entries,
 
 const Tab = @This();
@@ -30,7 +31,13 @@ pub const Message = union(enum) {
     open_dirs: []const u8,
 };
 
+const DelEvent = union(enum) {
+    single: windows.RecycleId,
+    multiple: []windows.RecycleId,
+};
+
 const max_paste_len = 1024;
+const max_history = 16;
 const nav_buttons = .{
     .parent = main.newId("Parent"),
     .refresh = main.newId("Refresh"),
@@ -58,6 +65,7 @@ pub fn init(path: []const u8) Model.Error!Tab {
     var tab = Tab{
         .cwd = try meta.FieldType(Tab, .cwd).init(path),
         .cached_cwd = try meta.FieldType(Tab, .cached_cwd).initCapacity(main.alloc, 256),
+        .del_history = if (main.is_windows) .{} else {},
         .entries = try Entries.init(),
     };
     errdefer tab.deinit();
@@ -101,6 +109,14 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     if (input.action) |action| if (!cwd_active) switch (action) {
         .mouse, .event => {},
         .key => |key| switch (key) {
+            .char => |c| if (input.ctrl) switch (c) {
+                'l' => {
+                    tab.cwd.focus();
+                    return null;
+                },
+                else => {},
+            },
+            .up => if (input.alt) try tab.openParentDir(),
             .backspace => try tab.openParentDir(),
             else => {},
         },
@@ -118,8 +134,48 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
             },
             .delete => |names| {
                 defer main.alloc.free(names);
+                try tab.cached_cwd.append(main.alloc, fs.path.sep);
+                const dir_len = tab.cached_cwd.items.len;
+                defer tab.cached_cwd.resize(main.alloc, dir_len - 1) catch unreachable;
                 var names_iter = mem.tokenizeScalar(u8, names, '\x00');
-                while (names_iter.next()) |name| try tab.delete(name);
+                if (main.is_windows) {
+                    var recycle_ids = std.ArrayList(windows.RecycleId).init(main.alloc);
+                    defer recycle_ids.deinit();
+                    var new_del_event: ?DelEvent = null;
+                    while (names_iter.next()) |name| {
+                        try tab.cached_cwd.appendSlice(main.alloc, name.ptr[0 .. name.len + 1]);
+                        defer tab.cached_cwd.resize(main.alloc, dir_len) catch unreachable;
+                        const recycle_id = try ops.delete(@ptrCast(tab.cached_cwd.items)) orelse continue;
+                        if (new_del_event) |*del_event| switch (del_event.*) {
+                            .single => |single| {
+                                try recycle_ids.append(single);
+                                try recycle_ids.append(recycle_id);
+                                del_event.* = .{ .multiple = &.{} };
+                            },
+                            .multiple => try recycle_ids.append(recycle_id),
+                        } else new_del_event = .{ .single = recycle_id };
+                    }
+                    if (new_del_event) |*del_event| {
+                        if (meta.activeTag(del_event.*) == .multiple) {
+                            del_event.* = .{ .multiple = try recycle_ids.toOwnedSlice() };
+                        }
+                        tab.del_history.append(del_event.*) catch {
+                            mem.rotate(DelEvent, tab.del_history.slice(), 1);
+                            switch (tab.del_history.pop()) {
+                                .single => {},
+                                .multiple => |multiple| main.alloc.free(multiple),
+                            }
+                            tab.del_history.appendAssumeCapacity(del_event.*);
+                        };
+                    }
+                } else {
+                    while (names_iter.next()) |name| {
+                        tab.cached_cwd.appendSlice(main.alloc, name);
+                        defer tab.cached_cwd.resize(main.alloc, dir_len) catch unreachable;
+                        try ops.delete(tab.cached_cwd.items);
+                    }
+                }
+                try tab.reloadEntries();
             },
         }
     }
@@ -197,9 +253,14 @@ pub fn clone(tab: Tab) Model.Error!Tab {
 }
 
 fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
+    const reloaded = mem.eql(u8, tab.cached_cwd.items, path);
     try tab.entries.load(path);
     tab.cached_cwd.clearRetainingCapacity();
     try tab.cached_cwd.appendSlice(main.alloc, path);
+    if (main.is_windows) if (!reloaded) while (tab.del_history.popOrNull()) |del| switch (del) {
+        .single => {},
+        .multiple => |multiple| main.alloc.free(multiple),
+    };
 }
 
 pub fn reloadEntries(tab: *Tab) Model.Error!void {
@@ -248,14 +309,9 @@ fn openVscode(tab: Tab) Model.Error!void {
     }
 }
 
-// TODO if hard deleting, show confirmation modal
-// if recycling, add generated filename to undo history
-fn delete(tab: *Tab, name: []const u8) Model.Error!void {
-    const path = try fs.path.joinZ(main.alloc, &.{ tab.cached_cwd.items, name });
-    defer main.alloc.free(path);
-    if (main.is_windows) {
-        const new_id = try ops.delete(path);
-        _ = new_id; // TODO
-    } else try ops.delete(path);
-    try tab.reloadEntries();
+fn undoDelete(tab: *Tab) if (main.is_window) Model.Error!void else @compileError("OS not supported") {
+    const id = tab.del_history.popOrNull() orelse return;
+    const disk_designator = fs.path.diskDesignator(tab.cached_cwd.items);
+    if (disk_designator.len != 2) return alert.updateFmt("Invalid location.");
+    try ops.restore(disk_designator[0], id);
 }

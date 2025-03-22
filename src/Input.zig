@@ -37,6 +37,7 @@ action: ?union(enum) {
 delta_ms: u32,
 shift: bool,
 ctrl: bool,
+alt: bool,
 
 const Input = @This();
 
@@ -49,8 +50,9 @@ pub fn read() Input {
         .mouse_pos = main.convertVector(rl.getMousePosition()),
         .action = null,
         .delta_ms = @intFromFloat(rl.getFrameTime() * time.ms_per_s),
-        .shift = rl.isKeyDown(rl.KeyboardKey.left_shift) or rl.isKeyDown(rl.KeyboardKey.right_shift),
-        .ctrl = rl.isKeyDown(rl.KeyboardKey.left_control) or rl.isKeyDown(rl.KeyboardKey.right_control),
+        .shift = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift),
+        .ctrl = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control),
+        .alt = rl.isKeyDown(.left_alt) or rl.isKeyDown(.right_alt),
     };
 
     if (main.is_windows) {

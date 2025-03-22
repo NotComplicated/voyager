@@ -1,13 +1,12 @@
 const std = @import("std");
 const time = std.time;
+const mem = std.mem;
 const win = std.os.windows;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 
 pub const Color = win.DWORD;
-pub const BufSize = win.ULONG;
-pub const String = ?win.LPSTR;
 
 pub const Event = enum {
     copy,
@@ -20,8 +19,6 @@ pub const NameFormat = enum(win.INT) {
     sam_compatible = 2,
     display = 3,
 };
-
-const WNDPROC = @TypeOf(&newWindowProc);
 
 pub const SYSTEMTIME = extern struct {
     year: win.WORD,
@@ -44,18 +41,28 @@ pub const TIME_ZONE_INFORMATION = extern struct {
     daylight_bias: win.LONG,
 };
 
-pub const SID_IDENTIFIER_AUTHORITY = extern struct {
-    value: [6]win.BYTE,
+pub const RecycleId = [6]u8;
+
+pub const RecycleMeta = struct {
+    size: u64,
+    delete_time: win.FILETIME,
+    restore_path: [:0]const u8,
 };
 
-pub const SID = extern struct {
+const WNDPROC = @TypeOf(&newWindowProc);
+
+const SID = extern struct {
     revision: win.BYTE,
     sub_authority_count: win.BYTE,
     identifier_authority: SID_IDENTIFIER_AUTHORITY,
     sub_authority: [1]win.DWORD,
 };
 
-pub const SID_NAME_USE = enum(win.INT) {
+const SID_IDENTIFIER_AUTHORITY = extern struct {
+    value: [6]win.BYTE,
+};
+
+const SID_NAME_USE = enum(win.INT) {
     user = 1,
     group,
     domain,
@@ -77,15 +84,18 @@ const copy_char = 'C' - 0x40;
 const paste_char = 'V' - 0x40;
 const undo_char = 'Z' - 0x40;
 const redo_char = 'Y' - 0x40;
+var maybe_sid: ?[]u8 = null;
 var oldWindowProc: ?WNDPROC = null;
 pub var event: ?Event = null;
-
-pub const free = win.LocalFree;
 
 pub fn init() void {
     const handle = getHandle();
     oldWindowProc = @ptrFromInt(@as(usize, @intCast(GetWindowLongPtrW(handle, gwlp_wndproc))));
     _ = SetWindowLongPtrW(handle, gwlp_wndproc, @intCast(@intFromPtr(&newWindowProc)));
+}
+
+pub fn deinit() void {
+    if (maybe_sid) |sid| win.LocalFree(sid.ptr);
 }
 
 pub fn colorFromClay(color: clay.Color) Color {
@@ -102,6 +112,25 @@ pub fn getFileTime() win.FILETIME {
 
 pub fn getLastError() []const u8 {
     return @tagName(win.kernel32.GetLastError());
+}
+
+pub fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
+    if (maybe_sid) |sid| return sid;
+    var username_buf: [128:0]u8 = undefined;
+    var username_size: win.ULONG = @intCast(username_buf.len);
+    if (GetUserNameExA(.sam_compatible, &username_buf, &username_size) == 0) return error.UserNotFound;
+    var sid_bytes: [256]u8 = undefined;
+    const sid: *SID = @ptrCast(mem.alignInBytes(&sid_bytes, @alignOf(SID)).?);
+    var sid_size: win.ULONG = @intCast(sid_bytes.len - (@intFromPtr(&sid_bytes) - @intFromPtr(sid)));
+    var domain_buf: [128:0]u8 = undefined;
+    var domain_size: win.ULONG = @intCast(domain_buf.len);
+    var use: SID_NAME_USE = undefined;
+    const res = LookupAccountNameA(null, &username_buf, sid, &sid_size, &domain_buf, &domain_size, &use);
+    if (res == 0) return error.LookupError;
+    var converted_sid: ?win.LPSTR = null;
+    if (ConvertSidToStringSidA(sid, &converted_sid) == 0 or converted_sid == null) return error.ConvertError;
+    maybe_sid = mem.span(converted_sid.?);
+    return maybe_sid.?;
 }
 
 pub fn shellExecStatusMessage(status: usize) []const u8 {
@@ -150,8 +179,8 @@ pub extern fn ShellExecuteA(
 
 pub extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) win.DWORD;
 
-pub extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) win.BOOLEAN;
-pub extern fn LookupAccountNameA(
+extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) win.BOOLEAN;
+extern fn LookupAccountNameA(
     system_name: ?win.LPCSTR,
     account_name: win.LPCSTR,
     sid: ?*SID,
@@ -160,7 +189,7 @@ pub extern fn LookupAccountNameA(
     referenced_domain_name_len: *win.DWORD,
     use: *SID_NAME_USE,
 ) win.BOOL;
-pub extern fn ConvertSidToStringSidA(sid: *SID, string: *?win.LPSTR) win.BOOL;
+extern fn ConvertSidToStringSidA(sid: *SID, string: *?win.LPSTR) win.BOOL;
 
 extern fn SetWindowLongPtrW(wnd: win.HWND, index: win.INT, newlong: win.LONG_PTR) win.LONG_PTR;
 extern fn GetWindowLongPtrW(wnd: win.HWND, index: win.INT) win.LONG_PTR;

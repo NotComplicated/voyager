@@ -432,6 +432,11 @@ pub fn TextBox(kind: enum(u8) { path = fs.path.sep, text = ' ' }, id: clay.Eleme
             return self.cursor != .none;
         }
 
+        pub fn focus(self: *Self) void {
+            self.cursor = .{ .at = self.value().len };
+            self.timer = 0;
+        }
+
         pub fn set(self: *Self, new_value: []const u8) Model.Error!void {
             self.content.clearRetainingCapacity();
             try self.content.appendSlice(main.alloc, new_value);

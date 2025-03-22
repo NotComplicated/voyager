@@ -38,8 +38,8 @@ var buf: [4096]u8 = undefined;
 var fba = heap.FixedBufferAllocator.init(&buf);
 const raylib_alloc = fba.allocator();
 
-const data_dirname = "VoyagerFM";
-const temp_dirname = "Temp";
+const data_dirname = "voyagerfm";
+const temp_dirname = "temp";
 pub var data_path: []const u8 = undefined;
 pub var temp_path: []const u8 = undefined;
 
@@ -194,6 +194,7 @@ pub fn main() !void {
             @sizeOf(@TypeOf(title_color)),
         );
     }
+    defer if (is_windows) windows.deinit();
 
     try resources.init();
     defer resources.deinit();

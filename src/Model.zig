@@ -27,6 +27,7 @@ pub const Error = error{
     DirAccessDenied,
     DeleteDirFailure,
     DeleteFileFailure,
+    RestoreFailure,
 };
 
 const TabIndex = u4;

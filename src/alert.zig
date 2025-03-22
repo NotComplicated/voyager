@@ -28,6 +28,7 @@ pub fn update(err: anyerror) void {
         Model.Error.OsNotSupported => _ = writer.write("Error: OS not yet supported") catch process.abort(),
         Model.Error.DeleteDirFailure => _ = writer.write("Failed to delete folder.") catch process.abort(),
         Model.Error.DeleteFileFailure => _ = writer.write("Failed to delete file.") catch process.abort(),
+        Model.Error.RestoreFailure => _ = writer.write("Failed to restore from Recycle Bin.") catch process.abort(),
         Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => {
             _ = writer.write("Error: Unable to open this folder") catch process.abort();
         },
