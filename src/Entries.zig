@@ -18,12 +18,13 @@ const main = @import("main.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
-const extensions = @import("extensions.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const TextBox = @import("text_box.zig").TextBox;
+
+const extensions: []const struct { []const u8, []const u8 } = @import("extensions.zon");
 
 data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
 data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
@@ -183,7 +184,7 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
 var file_types = std.StaticStringMapWithEql(
     []const u8,
     std.static_string_map.eqlAsciiIgnoreCase,
-).initComptime(extensions.data);
+).initComptime(extensions);
 
 const container_id = clay.id("EntriesContainer");
 const entries_id = clay.id("Entries");
