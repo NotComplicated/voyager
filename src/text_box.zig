@@ -19,13 +19,13 @@ const Model = @import("Model.zig");
 
 pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
     return struct {
-        content: std.ArrayListUnmanaged(u8),
+        content: main.ArrayList(u8),
         cursor: Cursor,
         timer: u32,
-        history: std.BoundedArray(struct { content: std.ArrayListUnmanaged(u8), cursor: Cursor }, max_history),
+        history: std.BoundedArray(struct { content: main.ArrayList(u8), cursor: Cursor }, max_history),
         tab_complete: if (kind == .path) struct {
-            completions: std.ArrayListUnmanaged([2]u32),
-            names: std.ArrayListUnmanaged(u8),
+            completions: main.ArrayList([2]u32),
+            names: main.ArrayList(u8),
             state: union(enum) { unloaded, selecting: usize, just_updated: usize },
         } else void,
 
@@ -70,7 +70,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
 
         pub fn init(contents: []const u8, state: enum { unfocused, selected }) Model.Error!Self {
             var text_box = Self{
-                .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 256),
+                .content = try .initCapacity(main.alloc, 256),
                 .cursor = switch (state) {
                     .unfocused => .none,
                     .selected => .{ .select = .{ .from = 0, .to = contents.len } },
@@ -78,8 +78,8 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                 .timer = 0,
                 .history = .{},
                 .tab_complete = if (kind == .path) .{
-                    .completions = try std.ArrayListUnmanaged([2]u32).initCapacity(main.alloc, 256),
-                    .names = try std.ArrayListUnmanaged(u8).initCapacity(main.alloc, 256 * 8),
+                    .completions = try .initCapacity(main.alloc, 256),
+                    .names = try .initCapacity(main.alloc, 256 * 8),
                     .state = .unloaded,
                 } else {},
             };
@@ -412,12 +412,12 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
             clay.ui()(.{
                 .id = id,
                 .layout = .{
-                    .padding = clay.Padding.horizontal(8),
+                    .padding = .horizontal(8),
                     .sizing = .{
-                        .width = .{ .type = .grow },
-                        .height = clay.Element.Sizing.Axis.fixed(Model.row_height),
+                        .width = .grow(.{}),
+                        .height = .fixed(Model.row_height),
                     },
-                    .child_alignment = .{ .y = clay.Element.Config.Layout.AlignmentY.center },
+                    .child_alignment = .{ .y = .center },
                 },
                 .scroll = .{ .horizontal = true },
                 .rectangle = .{
@@ -636,11 +636,11 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
         fn copy(self: *Self, selection: Selection) Model.Error!void {
             try self.content.insert(main.alloc, selection.right(), 0);
             defer _ = self.content.orderedRemove(selection.right());
-            rl.setClipboardText(@ptrCast(self.value().ptr + selection.left()));
+            rl.setClipboardText(@ptrCast(self.value()[selection.left()..]));
         }
 
         fn paste(self: *Self, index: usize, len: usize) Model.Error!void {
-            const clipboard = mem.span(rl.getClipboardText());
+            const clipboard = rl.getClipboardText();
             if (clipboard.len > max_paste_len) {
                 alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
             } else if (clipboard.len > 0) {

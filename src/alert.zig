@@ -14,7 +14,7 @@ const error_duration = 1_500;
 const error_fade_duration = 300;
 const unexpected_error = "Unexpected Error";
 
-var alert: struct { timer: ?u32, msg: std.ArrayListUnmanaged(u8) } = .{ .timer = null, .msg = .{} };
+var alert: struct { timer: ?u32, msg: main.ArrayList(u8) } = .{ .timer = null, .msg = .empty };
 
 pub fn deinit() void {
     alert.msg.deinit(main.alloc);
@@ -73,7 +73,7 @@ pub fn render() void {
         }
 
         clay.ui()(.{
-            .id = main.newId("ErrorModal"),
+            .id = clay.id("ErrorModal"),
             .floating = .{
                 .offset = .{ .x = -24, .y = -24 },
                 .z_index = 1,
@@ -81,9 +81,9 @@ pub fn render() void {
                 .pointer_capture_mode = .passthrough,
             },
             .layout = .{
-                .sizing = .{ .height = clay.Element.Sizing.Axis.fixed(60) },
-                .padding = clay.Padding.horizontal(12),
-                .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
+                .sizing = .{ .height = .fixed(60) },
+                .padding = .horizontal(12),
+                .child_alignment = .center,
             },
             .rectangle = .{
                 .color = themes.opacity(themes.current.alert, alpha),

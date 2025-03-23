@@ -2,18 +2,18 @@ const std = @import("std");
 
 const name = "voyager";
 
-pub fn build(b: *std.Build) !void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const root = b.path("src/main.zig");
     const console = b.option(bool, "console", "Enable console mode") orelse false;
 
-    const clay = b.dependency("clay", .{
+    const clay = b.dependency("clay_zig", .{
         .target = target,
         .optimize = optimize,
         .raylib_renderer = true,
     });
-    const datetime = b.dependency("zig-datetime", .{
+    const datetime = b.dependency("datetime", .{
         .target = target,
         .optimize = optimize,
     });
@@ -36,22 +36,11 @@ pub fn build(b: *std.Build) !void {
     for (raylib_config) |config| {
         clay.artifact("raylib").root_module.addCMacro(config.@"0", config.@"1");
     }
-    exe.root_module.addImport("datetime", datetime.module("zig-datetime"));
+    exe.root_module.addImport("datetime", datetime.module("datetime"));
 
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run " ++ name);
     run_step.dependOn(&run_cmd.step);
-
-    const tester = b.addTest(.{
-        .name = name,
-        .root_source_file = root,
-        .target = target,
-        .optimize = optimize,
-    });
-    tester.root_module.addImport("clay", clay.module("clay"));
-    const test_cmd = b.addRunArtifact(tester);
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&test_cmd.step);
 
     b.installArtifact(exe);
 }

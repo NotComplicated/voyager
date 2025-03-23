@@ -18,11 +18,11 @@ const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
-const TextBox = @import("text_box.zig").TextBox;
 const Entries = @import("Entries.zig");
+const TextBox = @import("text_box.zig").TextBox;
 
-cwd: TextBox(.path, main.newId("CurrentDir")),
-cached_cwd: std.ArrayListUnmanaged(u8),
+cwd: TextBox(.path, clay.id("CurrentDir")),
+cached_cwd: main.ArrayList(u8),
 del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
 entries: Entries,
 
@@ -40,18 +40,18 @@ const DelEvent = union(enum) {
 const max_paste_len = 1024;
 const max_history = 16;
 const nav_buttons = .{
-    .parent = main.newId("Parent"),
-    .refresh = main.newId("Refresh"),
-    .vscode = main.newId("VsCode"),
+    .parent = clay.id("Parent"),
+    .refresh = clay.id("Refresh"),
+    .vscode = clay.id("VsCode"),
 };
 
 fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
     clay.ui()(.{
         .id = id,
-        .layout = .{ .sizing = clay.Element.Sizing.fixed(Model.row_height) },
+        .layout = .{ .sizing = .fixed(Model.row_height) },
         .image = .{
             .image_data = icon,
-            .source_dimensions = clay.Dimensions.square(Model.row_height),
+            .source_dimensions = .square(Model.row_height),
         },
         .rectangle = .{
             .color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.base,
@@ -64,10 +64,10 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
 
 pub fn init(path: []const u8) Model.Error!Tab {
     var tab = Tab{
-        .cwd = try meta.FieldType(Tab, .cwd).init(path, .unfocused),
-        .cached_cwd = try meta.FieldType(Tab, .cached_cwd).initCapacity(main.alloc, 256),
+        .cwd = try .init(path, .unfocused),
+        .cached_cwd = try .initCapacity(main.alloc, 256),
         .del_history = if (main.is_windows) .{} else {},
-        .entries = try Entries.init(),
+        .entries = try .init(),
     };
     errdefer tab.deinit();
 
@@ -214,7 +214,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                         }
                         tab.del_history.append(del_event.*) catch {
                             mem.rotate(DelEvent, tab.del_history.slice(), 1);
-                            switch (tab.del_history.pop()) {
+                            switch (tab.del_history.pop() orelse unreachable) {
                                 .single => {},
                                 .multiple => |multiple| main.alloc.free(multiple),
                             }
@@ -238,18 +238,18 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
 
 pub fn render(tab: Tab) void {
     clay.ui()(.{
-        .id = main.newId("TabContent"),
+        .id = clay.id("TabContent"),
         .layout = .{
-            .sizing = clay.Element.Sizing.grow(.{}),
+            .sizing = .grow(.{}),
             .layout_direction = .top_to_bottom,
         },
     })({
         clay.ui()(.{
-            .id = main.newId("NavBar"),
+            .id = clay.id("NavBar"),
             .layout = .{
-                .padding = clay.Padding.all(10),
+                .padding = .all(10),
                 .sizing = .{
-                    .width = .{ .type = .grow },
+                    .width = .grow(.{}),
                 },
                 .child_gap = 10,
             },
@@ -263,26 +263,26 @@ pub fn render(tab: Tab) void {
         });
 
         clay.ui()(.{
-            .id = main.newId("Content"),
+            .id = clay.id("Content"),
             .layout = .{
-                .sizing = clay.Element.Sizing.grow(.{}),
+                .sizing = .grow(.{}),
             },
             .rectangle = .{ .color = themes.current.bg },
         })({
             const shortcut_width = 260; // TODO customizable
 
             clay.ui()(.{
-                .id = main.newId("ShortcutsContainer"),
+                .id = clay.id("ShortcutsContainer"),
                 .layout = .{
-                    .padding = clay.Padding.all(10),
-                    .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(shortcut_width) },
+                    .padding = .all(10),
+                    .sizing = .{ .width = .fixed(shortcut_width) },
                 },
             })({
                 clay.ui()(.{
-                    .id = main.newId("Shortcuts"),
+                    .id = clay.id("Shortcuts"),
                     .layout = .{
                         .layout_direction = .top_to_bottom,
-                        .padding = clay.Padding.all(16),
+                        .padding = .all(16),
                     },
                 })({
                     main.text("Shortcuts will go here");
@@ -310,7 +310,7 @@ fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
     try tab.entries.load(path);
     tab.cached_cwd.clearRetainingCapacity();
     try tab.cached_cwd.appendSlice(main.alloc, path);
-    if (main.is_windows) if (!reloaded) while (tab.del_history.popOrNull()) |del| switch (del) {
+    if (main.is_windows) if (!reloaded) while (tab.del_history.pop()) |del| switch (del) {
         .single => {},
         .multiple => |multiple| main.alloc.free(multiple),
     };
@@ -373,7 +373,7 @@ fn openVscode(tab: Tab) Model.Error!void {
         const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, "code", path, null, 0));
         if (status <= 32) return alert.updateFmt("Failed to open directory.", .{});
     } else {
-        return Model.Error.OsNotSupported;
+        return .OsNotSupported;
     }
 }
 
@@ -381,7 +381,7 @@ fn undoDelete(tab: *Tab) Model.Error!void {
     if (!main.is_windows) @compileError("OS not supported");
     const disk = fs.path.diskDesignator(tab.cached_cwd.items);
     if (disk.len == 0) return Model.Error.RestoreFailure;
-    const del_event = tab.del_history.popOrNull() orelse return;
+    const del_event = tab.del_history.pop() orelse return;
     switch (del_event) {
         .single => |id| try ops.restore(disk[0], &.{id}),
         .multiple => |ids| {

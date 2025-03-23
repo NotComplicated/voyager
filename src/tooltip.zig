@@ -1,7 +1,6 @@
 const std = @import("std");
 const meta = std.meta;
 const time = std.time;
-const fmt = std.fmt;
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -20,17 +19,17 @@ var tooltip: struct {
         delay: struct { timer: u32, pos: clay.Vector2 },
         enabled: struct { pos: clay.Vector2 },
     },
-    msg: std.ArrayListUnmanaged(u8),
+    msg: main.ArrayList(u8),
 } = .{
     .state = .disabled,
-    .msg = .{},
+    .msg = .empty,
 };
 
 pub fn deinit() void {
     tooltip.msg.deinit(main.alloc);
 }
 
-pub fn update(input: Input) ?@TypeOf(tooltip.msg.writer(undefined)) {
+pub fn update(input: Input) ?@TypeOf(tooltip.msg).Writer {
     const reset = @TypeOf(tooltip.state){ .delay = .{ .timer = 0, .pos = input.mouse_pos } };
     switch (tooltip.state) {
         .disabled => {
@@ -64,14 +63,14 @@ pub fn render() void {
             if (pos_x_end > width) pos.x -= pos_x_end - width;
 
             clay.ui()(.{
-                .id = main.newId("ToolTip"),
+                .id = clay.id("ToolTip"),
                 .floating = .{
                     .offset = pos,
                     .z_index = 1,
                     .pointer_capture_mode = .passthrough,
                 },
                 .layout = .{
-                    .padding = clay.Padding.xy(16, 8),
+                    .padding = .xy(16, 8),
                     .child_alignment = .{ .x = .center },
                 },
                 .rectangle = .{

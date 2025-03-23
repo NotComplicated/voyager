@@ -1,9 +1,4 @@
-const builtin = @import("builtin");
-pub const is_debug = builtin.mode == .Debug;
-pub const is_windows = builtin.os.tag == .windows;
-
 const std = @import("std");
-const testing = std.testing;
 const enums = std.enums;
 const heap = std.heap;
 const math = std.math;
@@ -24,20 +19,24 @@ const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
+const builtin = @import("builtin");
+pub const is_debug = builtin.mode == .Debug;
+pub const is_windows = builtin.os.tag == .windows;
+
+pub fn ArrayList(T: type) type {
+    return std.ArrayListUnmanaged(T);
+}
+
 const title = "Voyager" ++ if (is_debug) " (Debug)" else "";
 const width = 1200 + if (is_debug) 400 else 0;
 const height = 600;
 const unfocused_fps = 15;
+const scroll_speed = 5;
 const mem_scale = 16;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
-var logging_page_alloc = heap.loggingAllocator(heap.c_allocator);
-pub const alloc = if (is_debug) logging_page_alloc.allocator() else heap.c_allocator;
-
-// a buffer for the raylib renderer to use for temporary string copies
-var buf: [4096]u8 = undefined;
-var fba = heap.FixedBufferAllocator.init(&buf);
-const raylib_alloc = fba.allocator();
+var debug_alloc = heap.DebugAllocator(.{ .verbose_log = true }).init;
+pub const alloc = if (is_debug) debug_alloc.allocator() else heap.smp_allocator;
 
 const data_dirname = "voyagerfm";
 const temp_dirname = "temp";
@@ -91,15 +90,8 @@ pub fn ibeam() void {
 
 var focused = true;
 
-// can't use clay.getElementData until it's patched
-extern fn Clay_GetElementData(id: clay.external_typedefs.ElementConfig.Id) clay.Element.Data;
 pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
-    const data = Clay_GetElementData(.{
-        .id = id.id,
-        .offset = id.offset,
-        .base_id = id.base_id,
-        .string_id = clay.external_typedefs.String.new(id.string_id),
-    });
+    const data = clay.getElementData(id);
     if (!data.found) {
         alert.updateFmt("Failed to locate element '{s}:{}'", .{ id.string_id, id.offset });
         return null;
@@ -108,41 +100,9 @@ pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
     }
 }
 
-// port of Clay__HashString to allow comptime IDs
-pub fn newId(key: []const u8) clay.Element.Config.Id {
-    return newIdIndexed(key, 0);
-}
-pub fn newIdIndexed(key: []const u8, offset: u32) clay.Element.Config.Id {
-    var hash: u32 = 0;
-    var base: u32 = 0;
-
-    for (key) |c| {
-        base +%= c;
-        base +%= math.shl(u32, base, 10);
-        base ^= math.shr(u32, base, 6);
-    }
-
-    hash = base;
-    hash +%= offset;
-    hash +%= math.shl(u32, hash, 10);
-    hash ^= math.shr(u32, hash, 6);
-
-    hash +%= math.shl(u32, hash, 3);
-    base +%= math.shl(u32, base, 3);
-    hash ^= math.shr(u32, hash, 11);
-    base ^= math.shr(u32, base, 11);
-    hash +%= math.shl(u32, hash, 15);
-    base +%= math.shl(u32, base, 15);
-
-    return .{
-        .id = hash + 1,
-        .offset = offset,
-        .base_id = base + 1,
-        .string_id = key,
-    };
-}
-
 pub fn main() !void {
+    defer _ = if (is_debug) debug_alloc.deinit();
+
     data_path = try fs.getAppDataDir(alloc, data_dirname);
     defer alloc.free(data_path);
     try ops.mkdir(data_path);
@@ -184,9 +144,20 @@ pub fn main() !void {
 }
 
 fn frame(model: *Model) void {
+    // Update phase
     clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
     clay.setPointerState(convertVector(rl.getMousePosition()), rl.isMouseButtonDown(.left));
-    clay.updateScrollContainers(false, convertVector(rl.math.vector2Scale(rl.getMouseWheelMoveV(), 5)), rl.getFrameTime());
+    clay.updateScrollContainers(
+        false,
+        convertVector(rl.math.vector2Scale(rl.getMouseWheelMoveV(), scroll_speed)),
+        rl.getFrameTime(),
+    );
+
+    const new_focused = rl.isWindowFocused();
+    if (new_focused != focused) {
+        focused = new_focused;
+        rl.setTargetFPS(if (focused) 0 else unfocused_fps);
+    }
 
     model.update(Input.read()) catch |err| switch (err) {
         Model.Error.GracefulShutdown => {
@@ -199,16 +170,12 @@ fn frame(model: *Model) void {
         },
     };
 
-    const new_focused = rl.isWindowFocused();
-    if (new_focused != focused) {
-        focused = new_focused;
-        rl.setTargetFPS(if (focused) 0 else unfocused_fps);
-    }
+    // Render phase
     rl.beginDrawing();
     defer rl.endDrawing();
 
     clay.beginLayout();
-    defer renderer.render(clay.endLayout(), raylib_alloc);
+    defer renderer.render(clay.endLayout());
 
     cursor = .default;
     defer rl.setMouseCursor(cursor);
@@ -216,40 +183,4 @@ fn frame(model: *Model) void {
     model.render();
     alert.render();
     tooltip.render();
-}
-
-test "ids" {
-    for ([_][]const u8{ "FooBar", "Baz", "" }) |key| {
-        const clay_id = clay.id(key);
-        const clay_get_id = clay.getId(key);
-        const new_id = newId(key);
-
-        try testing.expectEqual(clay_id.id, clay_get_id.id);
-        try testing.expectEqual(clay_id.id, new_id.id);
-
-        try testing.expectEqual(clay_id.base_id, clay_get_id.base_id);
-        try testing.expectEqual(clay_id.base_id, new_id.base_id);
-
-        try testing.expectEqualStrings(clay_id.string_id, clay_get_id.string_id);
-        try testing.expectEqualStrings(clay_id.string_id, new_id.string_id);
-    }
-}
-
-test "offset ids" {
-    const key = "Key";
-    for (0..3) |i| {
-        const offset: u32 = @intCast(i);
-        const clay_id = clay.idi(key, offset);
-        const clay_get_id = clay.getIdi(key, offset);
-        const new_id = newIdIndexed(key, offset);
-
-        try testing.expectEqual(clay_id.id, clay_get_id.id);
-        try testing.expectEqual(clay_id.id, new_id.id);
-
-        try testing.expectEqual(clay_id.base_id, clay_get_id.base_id);
-        try testing.expectEqual(clay_id.base_id, new_id.base_id);
-
-        try testing.expectEqualStrings(clay_id.string_id, clay_get_id.string_id);
-        try testing.expectEqualStrings(clay_id.string_id, new_id.string_id);
-    }
 }

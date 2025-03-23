@@ -18,6 +18,7 @@ pub const Event = enum {
 pub const NameFormat = enum(win.INT) {
     sam_compatible = 2,
     display = 3,
+    _,
 };
 
 pub const SYSTEMTIME = extern struct {
@@ -55,7 +56,7 @@ const SID = extern struct {
     revision: win.BYTE,
     sub_authority_count: win.BYTE,
     identifier_authority: SID_IDENTIFIER_AUTHORITY,
-    sub_authority: [1]win.DWORD,
+    sub_authority: [1]win.DWORD, // flexible c struct
 };
 
 const SID_IDENTIFIER_AUTHORITY = extern struct {
@@ -74,6 +75,7 @@ const SID_NAME_USE = enum(win.INT) {
     computer,
     label,
     logon_session,
+    _,
 };
 
 pub const move_flags = win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH;
@@ -95,7 +97,7 @@ pub fn init() void {
 }
 
 pub fn deinit() void {
-    if (maybe_sid) |sid| win.LocalFree(sid.ptr);
+    if (maybe_sid) |sid| _ = LocalFree(sid.ptr);
 }
 
 pub fn colorFromClay(color: clay.Color) Color {
@@ -164,9 +166,9 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
     return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
 }
 
-pub extern fn MoveFileExA(old: win.LPCSTR, new: win.LPCSTR, flags: win.DWORD) win.BOOL;
+pub extern fn MoveFileExA(old: win.LPCSTR, new: win.LPCSTR, flags: win.DWORD) callconv(.winapi) win.BOOL;
 
-pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) win.HRESULT;
+pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) callconv(.winapi) win.HRESULT;
 
 pub extern fn ShellExecuteA(
     hwnd: ?win.HWND,
@@ -175,11 +177,11 @@ pub extern fn ShellExecuteA(
     lpParameters: ?win.LPCSTR,
     lpDirectory: ?win.LPCSTR,
     nShowCmd: win.INT,
-) win.HINSTANCE;
+) callconv(.winapi) win.HINSTANCE;
 
-pub extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) win.DWORD;
+pub extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) callconv(.winapi) win.DWORD;
 
-extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) win.BOOLEAN;
+extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) callconv(.winapi) win.BOOLEAN;
 extern fn LookupAccountNameA(
     system_name: ?win.LPCSTR,
     account_name: win.LPCSTR,
@@ -188,9 +190,11 @@ extern fn LookupAccountNameA(
     referenced_domain_name: ?win.LPSTR,
     referenced_domain_name_len: *win.DWORD,
     use: *SID_NAME_USE,
-) win.BOOL;
-extern fn ConvertSidToStringSidA(sid: *SID, string: *?win.LPSTR) win.BOOL;
+) callconv(.winapi) win.BOOL;
+extern fn ConvertSidToStringSidA(sid: *SID, string: *?win.LPSTR) callconv(.winapi) win.BOOL;
 
-extern fn SetWindowLongPtrW(wnd: win.HWND, index: win.INT, newlong: win.LONG_PTR) win.LONG_PTR;
-extern fn GetWindowLongPtrW(wnd: win.HWND, index: win.INT) win.LONG_PTR;
-extern fn CallWindowProcW(prev_wnd_func: WNDPROC, win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) win.LRESULT;
+extern fn SetWindowLongPtrW(wnd: win.HWND, index: win.INT, newlong: win.LONG_PTR) callconv(.winapi) win.LONG_PTR;
+extern fn GetWindowLongPtrW(wnd: win.HWND, index: win.INT) callconv(.winapi) win.LONG_PTR;
+extern fn CallWindowProcW(prev_wnd_func: WNDPROC, win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) callconv(.winapi) win.LRESULT;
+
+extern fn LocalFree(mem: win.HLOCAL) callconv(.winapi) ?win.HLOCAL;

@@ -27,9 +27,9 @@ const TextBox = @import("text_box.zig").TextBox;
 
 data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
 data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
-names: std.ArrayListUnmanaged(u8),
-sizes: std.ArrayListUnmanaged(std.BoundedArray(u8, 10)),
-sortings: std.EnumArray(Sorting, std.EnumArray(Kind, std.ArrayListUnmanaged(Index))),
+names: main.ArrayList(u8),
+sizes: main.ArrayList(std.BoundedArray(u8, 10)),
+sortings: std.EnumArray(Sorting, std.EnumArray(Kind, main.ArrayList(Index))),
 curr_sorting: Sorting,
 sort_type: enum { asc, desc },
 max_name_len: u16,
@@ -37,7 +37,7 @@ timer: u32,
 selection: ?struct { from: struct { Kind, Index }, to: struct { Kind, Index } },
 view: enum { list, grid_sm, grid_md, grid_lg },
 row_len: Index,
-new_item: ?struct { kind: Kind, name: TextBox(.text, main.newId("NewItemInput")) },
+new_item: ?struct { kind: Kind, name: TextBox(.text, clay.id("NewItemInput")) },
 
 const Entries = @This();
 
@@ -132,7 +132,7 @@ const Entry = struct {
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
-    const entry_fields = @typeInfo(Entry).Struct.fields;
+    const entry_fields = meta.fields(Entry);
     var item_fields: [entry_fields.len + 1]builtin.Type.StructField = undefined;
     var item_field_index = 0;
     for (entry_fields) |entry_field| {
@@ -150,13 +150,13 @@ fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
     item_fields[item_field_index] = .{
         .name = "index",
         .type = Index,
-        .default_value = null,
+        .default_value_ptr = null,
         .is_comptime = false,
         .alignment = @alignOf(Entry),
     };
     item_field_index += 1;
     var item_type = @typeInfo(Entry);
-    item_type.Struct.fields = item_fields[0..item_field_index];
+    item_type.@"struct".fields = item_fields[0..item_field_index];
     const Item = @Type(item_type);
 
     return struct {
@@ -185,8 +185,8 @@ var file_types = std.StaticStringMapWithEql(
     std.static_string_map.eqlAsciiIgnoreCase,
 ).initComptime(extensions.data);
 
-const container_id = main.newId("EntriesContainer");
-const entries_id = main.newId("Entries");
+const container_id = clay.id("EntriesContainer");
+const entries_id = clay.id("Entries");
 
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
@@ -218,11 +218,11 @@ fn kinds() []const Kind {
 fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) clay.Element.Config.Id {
     comptime var kind_name = @tagName(kind).*;
     kind_name[0] = comptime ascii.toUpper(kind_name[0]);
-    return main.newIdIndexed(kind_name[0..] ++ "Entry" ++ suffix, index);
+    return clay.idi(kind_name[0..] ++ "Entry" ++ suffix, index);
 }
 
 fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Element.Config.Id {
-    return main.newId("EntriesColumn" ++ title ++ suffix);
+    return clay.id("EntriesColumn" ++ title ++ suffix);
 }
 
 fn scrollToView(comptime kind: Kind, index: Index) void {
@@ -288,12 +288,11 @@ pub fn init() Model.Error!Entries {
     const default_entry_cap = 128;
 
     var entries = Entries{
-        .data = meta.FieldType(Entries, .data).initFill(.{}),
-        .data_slices = meta.FieldType(Entries, .data_slices).initUndefined(),
-        .names = try meta.FieldType(Entries, .names).initCapacity(main.alloc, default_entry_cap * 8),
-        .sizes = try meta.FieldType(Entries, .sizes).initCapacity(main.alloc, default_entry_cap),
-        .sortings = meta.FieldType(Entries, .sortings)
-            .initFill(@TypeOf(meta.FieldType(Entries, .sortings).initUndefined().get(undefined)).initFill(.{})),
+        .data = .initFill(.{}),
+        .data_slices = .initUndefined(),
+        .names = try .initCapacity(main.alloc, default_entry_cap * 8),
+        .sizes = try .initCapacity(main.alloc, default_entry_cap),
+        .sortings = .initFill(.initFill(.empty)),
         .curr_sorting = .name,
         .sort_type = .asc,
         .max_name_len = 0,
@@ -482,12 +481,10 @@ pub fn render(entries: Entries) void {
     const shortcuts_width = 280; // TODO
     const max_name_len = if (entries.new_item != null) @max(min_new_item_len, entries.max_name_len) else entries.max_name_len;
     const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
-    const name_sizing = clay.Element.Sizing{
-        .width = clay.Element.Sizing.Axis.fixed(@floatFromInt(name_chars * char_px_width)),
-    };
-    const entry_layout = .{
+    const name_sizing = clay.Element.Sizing{ .width = .fixed(@floatFromInt(name_chars * char_px_width)) };
+    const entry_layout = clay.Element.Config.Layout{
         .padding = .{ .top = 4, .bottom = 4, .left = 8 },
-        .sizing = .{ .width = .{ .type = .grow } },
+        .sizing = .{ .width = .grow(.{}) },
         .child_alignment = .{ .y = .center },
         .child_gap = 4,
     };
@@ -496,19 +493,16 @@ pub fn render(entries: Entries) void {
         .id = container_id,
         .layout = .{
             .padding = .{ .left = 10, .right = 10, .top = 0, .bottom = 10 },
-            .sizing = .{
-                .width = clay.Element.Sizing.Axis.grow(.{}),
-                .height = clay.Element.Sizing.Axis.grow(.{}),
-            },
+            .sizing = .grow(.{}),
             .layout_direction = .top_to_bottom,
         },
         .scroll = .{ .horizontal = true },
     })({
         clay.ui()(.{
-            .id = main.newId("EntriesColumns"),
+            .id = clay.id("EntriesColumns"),
             .layout = entry_layout,
         })({
-            clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) } })({});
+            clay.ui()(.{ .layout = .{ .sizing = .fixed(resources.file_icon_size) } })({});
 
             const column = struct {
                 fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Element.Sizing) void {
@@ -517,7 +511,7 @@ pub fn render(entries: Entries) void {
                     clay.ui()(.{
                         .id = id,
                         .layout = .{
-                            .padding = clay.Padding.xy(10, 6),
+                            .padding = .xy(10, 6),
                             .sizing = sizing,
                             .child_gap = 6,
                         },
@@ -532,14 +526,14 @@ pub fn render(entries: Entries) void {
                         clay.ui()(.{
                             .id = getColumnId(title, "Sort"),
                             .layout = .{
-                                .sizing = .{ .width = clay.Element.Sizing.Axis.fixed(20) },
+                                .sizing = .{ .width = .fixed(20) },
                             },
                             .image = if (passed_entries.curr_sorting == sorting) .{
                                 .image_data = if (passed_entries.sort_type == .asc)
                                     &resources.images.sort_asc
                                 else
                                     &resources.images.sort_desc,
-                                .source_dimensions = clay.Dimensions.square(20),
+                                .source_dimensions = .square(20),
                             } else null,
                         })({});
                     });
@@ -566,10 +560,10 @@ pub fn render(entries: Entries) void {
         clay.ui()(.{
             .id = entries_id,
             .layout = .{
-                .padding = clay.Padding.all(10),
+                .padding = .all(10),
                 .sizing = .{
-                    .width = clay.Element.Sizing.Axis.grow(.{ .max = @floatFromInt(width -| shortcuts_width) }),
-                    .height = clay.Element.Sizing.Axis.grow(.{ .max = 1 }), // hacky fix for element leaking off-screen
+                    .width = .grow(.{ .max = @floatFromInt(width -| shortcuts_width) }),
+                    .height = .grow(.{ .max = 1 }), // hacky fix for element leaking off-screen
                 },
                 .child_gap = 4,
                 .layout_direction = .top_to_bottom,
@@ -580,7 +574,7 @@ pub fn render(entries: Entries) void {
             inline for (comptime kinds()) |kind| {
                 if (entries.new_item) |new_item| if (new_item.kind == kind) {
                     clay.ui()(.{
-                        .id = main.newId("NewItem"),
+                        .id = clay.id("NewItem"),
                         .layout = entry_layout,
                         .rectangle = .{
                             .color = themes.current.base,
@@ -588,13 +582,17 @@ pub fn render(entries: Entries) void {
                         },
                     })({
                         clay.ui()(.{
-                            .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) },
+                            .layout = .{ .sizing = .fixed(resources.file_icon_size) },
                             .image = .{
                                 .image_data = if (kind == .dir) &resources.images.add_folder else &resources.images.add_file,
-                                .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
+                                .source_dimensions = .square(resources.file_icon_size),
                             },
                         })({});
-                        clay.ui()(.{ .layout = .{ .sizing = name_sizing } })({
+                        clay.ui()(.{
+                            .layout = .{
+                                .sizing = name_sizing,
+                            },
+                        })({
                             new_item.name.render();
                         });
                     });
@@ -632,17 +630,17 @@ pub fn render(entries: Entries) void {
                         clay.ui()(.{
                             .id = getEntryId(kind, "IconContainer", sorted_index),
                             .layout = .{
-                                .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
+                                .sizing = .fixed(resources.file_icon_size),
                             },
                         })({
                             clay.ui()(.{
                                 .id = getEntryId(kind, "Icon", sorted_index),
                                 .layout = .{
-                                    .sizing = clay.Element.Sizing.grow(.{}),
+                                    .sizing = .grow(.{}),
                                 },
                                 .image = .{
                                     .image_data = icon_image,
-                                    .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
+                                    .source_dimensions = .square(resources.file_icon_size),
                                 },
                             })({});
                         });
@@ -652,7 +650,7 @@ pub fn render(entries: Entries) void {
                         clay.ui()(.{
                             .id = getEntryId(kind, "Name", sorted_index),
                             .layout = .{
-                                .padding = clay.Padding.all(6),
+                                .padding = .all(6),
                                 .sizing = name_sizing,
                             },
                         })({
@@ -667,7 +665,7 @@ pub fn render(entries: Entries) void {
                             clay.ui()(.{
                                 .id = getEntryId(kind, "Type", sorted_index),
                                 .layout = .{
-                                    .padding = clay.Padding.all(6),
+                                    .padding = .all(6),
                                     .sizing = type_sizing,
                                 },
                             })({
@@ -689,7 +687,7 @@ pub fn render(entries: Entries) void {
                             clay.ui()(.{
                                 .id = getEntryId(kind, "Size", sorted_index),
                                 .layout = .{
-                                    .padding = clay.Padding.all(6),
+                                    .padding = .all(6),
                                     .sizing = size_sizing,
                                 },
                             })({
@@ -705,7 +703,7 @@ pub fn render(entries: Entries) void {
                             clay.ui()(.{
                                 .id = getEntryId(kind, "Created", sorted_index),
                                 .layout = .{
-                                    .padding = clay.Padding.all(6),
+                                    .padding = .all(6),
                                     .sizing = timespan_sizing,
                                 },
                             })({
@@ -726,7 +724,7 @@ pub fn render(entries: Entries) void {
                             clay.ui()(.{
                                 .id = getEntryId(kind, "Modified", sorted_index),
                                 .layout = .{
-                                    .padding = clay.Padding.all(6),
+                                    .padding = .all(6),
                                     .sizing = timespan_sizing,
                                 },
                             })({
@@ -748,8 +746,9 @@ pub fn render(entries: Entries) void {
 
 pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
     if (!fs.path.isAbsolute(path)) return Model.Error.OpenDirFailure;
-    const dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
+    var dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
         return if (err == error.AccessDenied) Model.Error.DirAccessDenied else Model.Error.OpenDirFailure;
+    defer dir.close();
 
     for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
     entries.names.clearRetainingCapacity();
@@ -766,14 +765,22 @@ pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
         try entries.names.appendSlice(main.alloc, entry.name);
 
         const is_dir = entry.kind == .directory;
-        const metadata = if (is_dir)
-            (dir.openDir(entry.name, .{ .access_sub_paths = false }) catch continue).metadata() catch continue
-        else
-            (dir.openFile(entry.name, .{}) catch continue).metadata() catch continue;
+        const metadata = if (is_dir) metadata: {
+            var dir_inner = dir.openDir(entry.name, .{ .access_sub_paths = false }) catch continue;
+            defer dir_inner.close();
+            break :metadata dir.metadata() catch continue;
+        } else metadata: {
+            const file = dir.openFile(entry.name, .{}) catch continue;
+            defer file.close();
+            break :metadata file.metadata() catch continue;
+        };
 
         if (!is_dir) {
             var size = meta.Elem(@TypeOf(entries.sizes.items)){};
-            fmt.format(size.writer(), "{:.2}", .{fmt.fmtIntSizeBin(metadata.size())}) catch unreachable;
+            fmt.format(size.writer(), "{:.2}", .{fmt.fmtIntSizeBin(metadata.size())}) catch |err| {
+                alert.update(err);
+                continue;
+            };
             if (mem.indexOfScalar(u8, size.slice(), 'i')) |remove_i_at| _ = size.orderedRemove(remove_i_at);
             var window_iter = mem.window(u8, size.slice(), 2, 1);
             var insert_space_at: usize = 0;
@@ -793,8 +800,8 @@ pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
                 .name = .{ @intCast(start_index), @intCast(entries.names.items.len) },
                 .size = metadata.size(),
                 .selected = false,
-                .created = if (metadata.created()) |created| Timespan.fromNanos(now - created) else null,
-                .modified = Timespan.fromNanos(now - metadata.modified()),
+                .created = if (metadata.created()) |created| .fromNanos(now - created) else null,
+                .modified = .fromNanos(now - metadata.modified()),
                 .created_millis = if (metadata.created()) |created| nanosToMillis(created) else null,
                 .modified_millis = nanosToMillis(metadata.modified()),
                 .readonly = metadata.permissions().readOnly(),
@@ -909,7 +916,7 @@ fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
 }
 
 fn nextSortedEntry(entries: Entries, kind: Kind, index: Index) struct { Kind, Index } {
-    const Indexer = @TypeOf(entries.sortings.get(undefined)).Indexer;
+    const Indexer = @TypeOf(entries.sortings).Value.Indexer;
     return if (index == entries.data.get(kind).len - 1)
         if (Indexer.indexOf(kind) == Indexer.count - 1)
             .{ kind, index }
@@ -920,7 +927,7 @@ fn nextSortedEntry(entries: Entries, kind: Kind, index: Index) struct { Kind, In
 }
 
 fn prevSortedEntry(entries: Entries, kind: Kind, index: Index) struct { Kind, Index } {
-    const Indexer = @TypeOf(entries.sortings.get(undefined)).Indexer;
+    const Indexer = @TypeOf(entries.sortings).Value.Indexer;
     if (index != 0) return .{ kind, index - 1 };
     if (Indexer.indexOf(kind) == 0) {
         return .{ kind, index };

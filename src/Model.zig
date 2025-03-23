@@ -1,6 +1,5 @@
 const std = @import("std");
 const math = std.math;
-const meta = std.meta;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -14,7 +13,7 @@ const Entries = @import("Entries.zig");
 const clay = @import("clay");
 const rl = @import("raylib");
 
-tabs: std.ArrayListUnmanaged(Tab),
+tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
 
 const Model = @This();
@@ -38,21 +37,21 @@ pub const row_height = 30;
 pub const tabs_height = 30;
 const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
-const new_tab_id = main.newId("NewTab");
-const tab_ids = ids: {
+const new_tab_id = clay.id("NewTab");
+
+fn getTabIds(key: []const u8) [max_tabs]clay.Element.Config.Id {
+    @setEvalBranchQuota(1500); // not sure why this needs to be here
     var ids: [max_tabs]clay.Element.Config.Id = undefined;
-    for (&ids, 0..) |*id, index| id.* = main.newIdIndexed("Tab", index);
-    break :ids ids;
-};
-const close_tab_ids = ids: {
-    var ids: [max_tabs]clay.Element.Config.Id = undefined;
-    for (&ids, 0..) |*id, index| id.* = main.newIdIndexed("CloseTab", index);
-    break :ids ids;
-};
+    for (&ids, 0..) |*id, index| id.* = clay.idi(key, index);
+    return ids;
+}
+
+const tab_ids = getTabIds("Tab");
+const close_tab_ids = getTabIds("CloseTab");
 
 pub fn init() Error!Model {
     var model = Model{
-        .tabs = .{},
+        .tabs = .empty,
         .curr_tab = 0,
     };
     errdefer model.tabs.deinit(main.alloc);
@@ -60,7 +59,7 @@ pub fn init() Error!Model {
     const path = fs.realpathAlloc(main.alloc, ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
 
-    try model.tabs.append(main.alloc, try Tab.init(path));
+    try model.tabs.append(main.alloc, try .init(path));
 
     return model;
 }
@@ -138,13 +137,13 @@ pub fn update(model: *Model, input: Input) Error!void {
 }
 
 pub fn render(model: Model) void {
-    const tabs_id = main.newId("Tabs");
+    const tabs_id = clay.id("Tabs");
     const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
 
     clay.ui()(.{
-        .id = main.newId("Screen"),
+        .id = clay.id("Screen"),
         .layout = .{
-            .sizing = clay.Element.Sizing.grow(.{}),
+            .sizing = .grow(.{}),
             .layout_direction = .top_to_bottom,
         },
         .rectangle = .{ .color = themes.current.base },
@@ -153,10 +152,10 @@ pub fn render(model: Model) void {
             .id = tabs_id,
             .layout = .{
                 .sizing = .{
-                    .width = clay.Element.Sizing.Axis.grow(.{}),
-                    .height = clay.Element.Sizing.Axis.fixed(tabs_height),
+                    .width = .grow(.{}),
+                    .height = .fixed(tabs_height),
                 },
-                .padding = clay.Padding.horizontal(8),
+                .padding = .horizontal(8),
                 .child_alignment = .{ .y = .center },
                 .child_gap = 0,
             },
@@ -172,8 +171,8 @@ pub fn render(model: Model) void {
                     .id = tab_ids[index],
                     .layout = .{
                         .sizing = .{
-                            .width = clay.Element.Sizing.Axis.fixed(@floatFromInt(tab_width)),
-                            .height = clay.Element.Sizing.Axis.grow(.{}),
+                            .width = .fixed(@floatFromInt(tab_width)),
+                            .height = .grow(.{}),
                         },
                         .child_alignment = .{ .x = .center, .y = .center },
                     },
@@ -188,7 +187,7 @@ pub fn render(model: Model) void {
                 })({
                     clay.ui()(.{
                         .layout = .{
-                            .sizing = clay.Element.Sizing.fixed(tabs_height),
+                            .sizing = .fixed(tabs_height),
                         },
                         .image = .{
                             .image_data = if (hovered)
@@ -197,11 +196,11 @@ pub fn render(model: Model) void {
                                 &resources.images.tab_left
                             else
                                 &resources.images.tab_left_dim,
-                            .source_dimensions = clay.Dimensions.square(tabs_height),
+                            .source_dimensions = .square(tabs_height),
                         },
                     })({});
 
-                    clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.grow(.{}) } })({});
+                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
                     const name = tab.tabName();
                     const chars = tab_width / 16;
@@ -212,19 +211,19 @@ pub fn render(model: Model) void {
                         main.textEx(.roboto, .sm, name, themes.current.dim_text);
                     }
 
-                    clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.grow(.{}) } })({});
+                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
                     clay.ui()(.{
                         .id = close_tab_ids[index],
                         .layout = .{
                             .sizing = .{
-                                .width = clay.Element.Sizing.Axis.fixed(9),
-                                .height = clay.Element.Sizing.Axis.fixed(tabs_height),
+                                .width = .fixed(9),
+                                .height = .fixed(tabs_height),
                             },
                         },
                         .image = .{
                             .image_data = if (!hovered and !selected) &resources.images.x_dim else &resources.images.x,
-                            .source_dimensions = clay.Dimensions{ .width = 9, .height = tabs_height },
+                            .source_dimensions = .{ .width = 9, .height = tabs_height },
                         },
                     })({
                         main.pointer();
@@ -232,7 +231,7 @@ pub fn render(model: Model) void {
 
                     clay.ui()(.{
                         .layout = .{
-                            .sizing = clay.Element.Sizing.fixed(tabs_height),
+                            .sizing = .fixed(tabs_height),
                         },
                         .image = .{
                             .image_data = if (hovered)
@@ -241,7 +240,7 @@ pub fn render(model: Model) void {
                                 &resources.images.tab_right
                             else
                                 &resources.images.tab_right_dim,
-                            .source_dimensions = clay.Dimensions.square(tabs_height),
+                            .source_dimensions = .square(tabs_height),
                         },
                     })({});
                 });
@@ -253,11 +252,11 @@ pub fn render(model: Model) void {
                 clay.ui()(.{
                     .id = new_tab_id,
                     .layout = .{
-                        .sizing = clay.Element.Sizing.fixed(tabs_height),
+                        .sizing = .fixed(tabs_height),
                     },
                     .image = .{
                         .image_data = &resources.images.plus,
-                        .source_dimensions = clay.Dimensions.square(tabs_height),
+                        .source_dimensions = .square(tabs_height),
                     },
                     .floating = .{
                         .offset = .{ .x = @floatFromInt(x_offset) },
