@@ -95,7 +95,7 @@ pub fn update(model: *Model, input: Input) Error!void {
                     try model.closeTab(model.curr_tab);
                     return;
                 },
-                'n' => if (input.ctrl) {
+                't' => if (input.ctrl) {
                     try model.newTab();
                     return;
                 },

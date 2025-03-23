@@ -68,10 +68,13 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
             submit: []const u8,
         };
 
-        pub fn init(contents: []const u8) Model.Error!Self {
+        pub fn init(contents: []const u8, state: enum { unfocused, selected }) Model.Error!Self {
             var text_box = Self{
                 .content = try meta.FieldType(Self, .content).initCapacity(main.alloc, 256),
-                .cursor = .none,
+                .cursor = switch (state) {
+                    .unfocused => .none,
+                    .selected => .{ .select = .{ .from = 0, .to = contents.len } },
+                },
                 .timer = 0,
                 .history = .{},
                 .tab_complete = if (kind == .path) .{
@@ -91,7 +94,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
             try text_box.content.appendSlice(main.alloc, contents);
 
             for (text_box.history.unusedCapacitySlice()) |*hist| {
-                hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = .none };
+                hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = text_box.cursor };
             }
             text_box.history.len = 1;
 
@@ -132,8 +135,8 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
 
             if (maybe_message) |message| {
                 switch (message) {
-                    .submit => |path| {
-                        const realpath = fs.realpathAlloc(main.alloc, path) catch |err| return switch (err) {
+                    .submit => |contents| if (kind == .path) {
+                        const realpath = fs.realpathAlloc(main.alloc, contents) catch |err| return switch (err) {
                             error.OutOfMemory => Model.Error.OutOfMemory,
                             else => Model.Error.OpenDirFailure,
                         };
@@ -504,6 +507,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
 
         pub fn value(self: Self) []const u8 {
             return self.content.items;
+        }
+
+        pub fn toOwned(self: *Self) Model.Error![]const u8 {
+            return self.content.toOwnedSlice(main.alloc) catch Model.Error.OutOfMemory;
         }
 
         pub fn isActive(self: Self) bool {

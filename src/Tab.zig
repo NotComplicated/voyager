@@ -64,7 +64,7 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
 
 pub fn init(path: []const u8) Model.Error!Tab {
     var tab = Tab{
-        .cwd = try meta.FieldType(Tab, .cwd).init(path),
+        .cwd = try meta.FieldType(Tab, .cwd).init(path, .unfocused),
         .cached_cwd = try meta.FieldType(Tab, .cached_cwd).initCapacity(main.alloc, 256),
         .del_history = if (main.is_windows) .{} else {},
         .entries = try Entries.init(),
@@ -83,23 +83,25 @@ pub fn deinit(tab: *Tab) void {
 }
 
 pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
+    const input_active = tab.cwd.isActive() or tab.entries.isActive();
+
     if (main.is_debug and input.clicked(.middle)) {
         log.debug("{}", .{tab});
-    } else if (input.clicked(.side)) {
-        try tab.openParentDir();
-    } else if (input.clicked(.left)) {
-        inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
-            if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
-                switch (button) {
-                    .parent => try tab.openParentDir(),
-                    .refresh => try tab.reloadEntries(),
-                    .vscode => try tab.openVscode(),
+    } else if (!input_active) {
+        if (input.clicked(.side)) {
+            try tab.openParentDir();
+        } else if (input.clicked(.left)) {
+            inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
+                if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
+                    switch (button) {
+                        .parent => try tab.openParentDir(),
+                        .refresh => try tab.reloadEntries(),
+                        .vscode => try tab.openVscode(),
+                    }
                 }
             }
         }
     }
-
-    const cwd_active = tab.cwd.isActive();
 
     if (try tab.cwd.update(input)) |message| {
         switch (message) {
@@ -114,7 +116,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
         }
     }
 
-    if (input.action) |action| if (!cwd_active) switch (action) {
+    if (input.action) |action| if (!input_active) switch (action) {
         .mouse => {},
         .event => |event| if (main.is_windows) switch (event) {
             .copy => {},
@@ -143,7 +145,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
         },
     };
 
-    if (try tab.entries.update(input, !cwd_active)) |message| {
+    if (try tab.entries.update(input, !input_active)) |message| {
         switch (message) {
             .open => |open| switch (open.kind) {
                 .dir => return .{ .open_dirs = open.names },
@@ -153,11 +155,41 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                     while (names_iter.next()) |name| try tab.openFile(name);
                 },
             },
+            .create => |create| {
+                defer main.alloc.free(create.name);
+                defer tab.reloadEntries() catch {};
+                try tab.cached_cwd.append(main.alloc, fs.path.sep);
+                defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - 1);
+                try tab.cached_cwd.appendSlice(main.alloc, create.name);
+                defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - create.name.len);
+                switch (create.kind) {
+                    .dir => fs.makeDirAbsolute(tab.cached_cwd.items) catch |err| switch (err) {
+                        error.PathAlreadyExists => alert.updateFmt("A folder with this name already exists.", .{}),
+                        else => {
+                            alert.update(err);
+                            return null;
+                        },
+                    },
+                    .file => {
+                        const file = fs.createFileAbsolute(
+                            tab.cached_cwd.items,
+                            .{ .exclusive = true },
+                        ) catch |err| {
+                            switch (err) {
+                                error.PathAlreadyExists => alert.updateFmt("A file with this name already exists.", .{}),
+                                else => alert.update(err),
+                            }
+                            return null;
+                        };
+                        file.close();
+                    },
+                }
+            },
             .delete => |names| {
                 defer main.alloc.free(names);
                 try tab.cached_cwd.append(main.alloc, fs.path.sep);
                 const dir_len = tab.cached_cwd.items.len;
-                defer tab.cached_cwd.resize(main.alloc, dir_len - 1) catch unreachable;
+                defer tab.cached_cwd.shrinkRetainingCapacity(dir_len - 1);
                 var names_iter = mem.tokenizeScalar(u8, names, '\x00');
                 if (main.is_windows) {
                     var recycle_ids = std.ArrayList(windows.RecycleId).init(main.alloc);
@@ -165,7 +197,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                     var new_del_event: ?DelEvent = null;
                     while (names_iter.next()) |name| {
                         try tab.cached_cwd.appendSlice(main.alloc, name.ptr[0 .. name.len + 1]);
-                        defer tab.cached_cwd.resize(main.alloc, dir_len) catch unreachable;
+                        defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
                         const recycle_id = try ops.delete(tab.cached_cwd.items[0 .. tab.cached_cwd.items.len - 1 :0]) orelse continue;
                         if (new_del_event) |*del_event| switch (del_event.*) {
                             .single => |single| {
@@ -192,7 +224,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 } else {
                     while (names_iter.next()) |name| {
                         tab.cached_cwd.appendSlice(main.alloc, name);
-                        defer tab.cached_cwd.resize(main.alloc, dir_len) catch unreachable;
+                        defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
                         try ops.delete(tab.cached_cwd.items);
                     }
                 }

@@ -23,6 +23,7 @@ const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
+const TextBox = @import("text_box.zig").TextBox;
 
 data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
 data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
@@ -36,6 +37,7 @@ timer: u32,
 selection: ?struct { from: struct { Kind, Index }, to: struct { Kind, Index } },
 view: enum { list, grid_sm, grid_md, grid_lg },
 row_len: Index,
+new_item: ?struct { kind: Kind, name: TextBox(.text, main.newId("NewItemInput")) },
 
 const Entries = @This();
 
@@ -48,6 +50,7 @@ pub const Kind = enum {
 
 pub const Message = union(enum) {
     open: struct { kind: Kind, names: []const u8 },
+    create: struct { kind: Kind, name: []const u8 },
     delete: []const u8,
 };
 
@@ -189,6 +192,7 @@ const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
 const entries_x_offset = 455; // TODO this includes shortcut width
 const entries_y_offset = 74 + Model.row_height + Model.tabs_height;
+const min_new_item_len = 24;
 const min_name_chars = 16;
 const max_name_chars = 32;
 const type_chars = 12;
@@ -297,6 +301,7 @@ pub fn init() Model.Error!Entries {
         .selection = null,
         .view = .list,
         .row_len = 1,
+        .new_item = null,
     };
     for (&entries.data.values) |*data| {
         data.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Model.Error.OutOfMemory;
@@ -313,10 +318,28 @@ pub fn deinit(entries: *Entries) void {
     entries.names.deinit(main.alloc);
     entries.sizes.deinit(main.alloc);
     for (&entries.sortings.values) |*sort_lists| for (&sort_lists.values) |*sort_list| sort_list.deinit(main.alloc);
+    if (entries.new_item) |*new_item| new_item.name.deinit();
 }
 
 pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Message {
     entries.timer +|= input.delta_ms;
+
+    if (entries.new_item) |*new_item| {
+        if (try new_item.name.update(input)) |message| switch (message) {
+            .submit => {
+                defer {
+                    new_item.name.deinit();
+                    entries.new_item = null;
+                }
+                return .{ .create = .{ .kind = new_item.kind, .name = try new_item.name.toOwned() } };
+            },
+        };
+        if (!new_item.name.isActive()) {
+            new_item.name.deinit();
+            entries.new_item = null;
+        }
+        return null;
+    }
 
     if (input.clicked(.left)) {
         if (clay.pointerOver(container_id)) {
@@ -350,6 +373,19 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
                     'a' => {
                         entries.selectFirst(false, false);
                         entries.selectLast(false, true);
+                    },
+                    'n', 'N' => if (entries.new_item == null) {
+                        const kind: Kind = if (input.shift) .dir else .file;
+                        switch (kind) {
+                            inline else => |k| scrollToView(k, 0),
+                        }
+                        entries.new_item = .{
+                            .kind = kind,
+                            .name = try @TypeOf(entries.new_item.?.name).init(
+                                if (input.shift) "New Folder" else "New File",
+                                .selected,
+                            ),
+                        };
                     },
                     else => {},
                 } else entries.jump(char),
@@ -444,10 +480,23 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
 pub fn render(entries: Entries) void {
     const width: usize = @intCast(rl.getScreenWidth());
     const shortcuts_width = 280; // TODO
-    const name_chars: usize = @max(@min(entries.max_name_len, max_name_chars), min_name_chars);
+    const max_name_len = if (entries.new_item != null) @max(min_new_item_len, entries.max_name_len) else entries.max_name_len;
+    const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
     const name_sizing = clay.Element.Sizing{
         .width = clay.Element.Sizing.Axis.fixed(@floatFromInt(name_chars * char_px_width)),
     };
+    const entry_layout = .{
+        .padding = .{ .top = 4, .bottom = 4, .left = 8 },
+        .sizing = .{ .width = .{ .type = .grow } },
+        .child_alignment = .{ .y = .center },
+        .child_gap = 4,
+    };
+
+    const iconPad = struct {
+        fn f() void {
+            clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) } })({});
+        }
+    }.f;
 
     clay.ui()(.{
         .id = container_id,
@@ -463,19 +512,9 @@ pub fn render(entries: Entries) void {
     })({
         clay.ui()(.{
             .id = main.newId("EntriesColumns"),
-            .layout = .{
-                .padding = .{ .top = 4, .bottom = 4, .left = 12 },
-                .sizing = .{ .width = .{ .type = .grow } },
-                .child_alignment = .{ .y = .center },
-                .child_gap = 4,
-            },
+            .layout = entry_layout,
         })({
-            clay.ui()(.{
-                .id = main.newId("EntriesColumnPad"),
-                .layout = .{
-                    .sizing = clay.Element.Sizing.fixed(resources.file_icon_size),
-                },
-            })({});
+            iconPad();
 
             const column = struct {
                 fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Element.Sizing) void {
@@ -545,6 +584,22 @@ pub fn render(entries: Entries) void {
             .rectangle = .{ .color = themes.current.base, .corner_radius = main.rounded },
         })({
             inline for (comptime kinds()) |kind| {
+                if (entries.new_item) |new_item| if (new_item.kind == kind) {
+                    clay.ui()(.{
+                        .id = main.newId("NewItem"),
+                        .layout = entry_layout,
+                        .rectangle = .{
+                            .color = themes.current.base,
+                            .corner_radius = main.rounded,
+                        },
+                    })({
+                        iconPad();
+                        clay.ui()(.{ .layout = .{ .sizing = name_sizing } })({
+                            new_item.name.render();
+                        });
+                    });
+                };
+
                 var sorted_iter = entries.sorted(kind, &.{
                     .name,
                     .selected,
@@ -556,12 +611,7 @@ pub fn render(entries: Entries) void {
                     const entry_id = getEntryId(kind, "", sorted_index);
                     clay.ui()(.{
                         .id = entry_id,
-                        .layout = .{
-                            .padding = .{ .top = 4, .bottom = 4, .left = 8 },
-                            .sizing = .{ .width = .{ .type = .grow } },
-                            .child_alignment = .{ .y = .center },
-                            .child_gap = 4,
-                        },
+                        .layout = entry_layout,
                         .rectangle = .{
                             .color = if (entry.selected)
                                 themes.current.selected
@@ -775,6 +825,10 @@ pub fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldE
     };
 }
 
+pub fn isActive(entries: Entries) bool {
+    return entries.new_item != null;
+}
+
 pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
     for (kinds()) |kind| {
         try fmt.format(writer, "\n{s}s:\n", .{@tagName(kind)});
@@ -785,6 +839,7 @@ pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, wr
         try array_writer.endArray();
     }
     try fmt.format(writer, "\nselection: {?}", .{entries.selection});
+    if (entries.new_item) |new_item| try fmt.format(writer, "\nnew_item: {?}", .{new_item.name});
 }
 
 fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
