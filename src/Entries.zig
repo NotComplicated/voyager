@@ -16,6 +16,7 @@ const Datetime = @import("datetime").datetime.Datetime;
 
 const main = @import("main.zig");
 const windows = @import("windows.zig");
+const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const extensions = @import("extensions.zig");
 const alert = @import("alert.zig");
@@ -26,7 +27,7 @@ const Model = @import("Model.zig");
 data: std.EnumArray(Kind, std.MultiArrayList(Entry)),
 data_slices: std.EnumArray(Kind, std.MultiArrayList(Entry).Slice),
 names: std.ArrayListUnmanaged(u8),
-sizes: std.ArrayListUnmanaged(std.BoundedArray(u8, 9)),
+sizes: std.ArrayListUnmanaged(std.BoundedArray(u8, 10)),
 sortings: std.EnumArray(Sorting, std.EnumArray(Kind, std.ArrayListUnmanaged(Index))),
 curr_sorting: Sorting,
 sort_type: enum { asc, desc },
@@ -488,7 +489,7 @@ pub fn render(entries: Entries) void {
                             .child_gap = 6,
                         },
                         .rectangle = .{
-                            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.bg,
+                            .color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.bg,
                             .corner_radius = main.rounded,
                         },
                     })({
@@ -541,7 +542,7 @@ pub fn render(entries: Entries) void {
                 .layout_direction = .top_to_bottom,
             },
             .scroll = .{ .vertical = true },
-            .rectangle = .{ .color = main.theme.base, .corner_radius = main.rounded },
+            .rectangle = .{ .color = themes.current.base, .corner_radius = main.rounded },
         })({
             inline for (comptime kinds()) |kind| {
                 var sorted_iter = entries.sorted(kind, &.{
@@ -563,11 +564,11 @@ pub fn render(entries: Entries) void {
                         },
                         .rectangle = .{
                             .color = if (entry.selected)
-                                main.theme.selected
+                                themes.current.selected
                             else if (clay.pointerOver(entry_id))
-                                main.theme.hovered
+                                themes.current.hovered
                             else
-                                main.theme.base,
+                                themes.current.base,
                             .corner_radius = main.rounded,
                         },
                     })({

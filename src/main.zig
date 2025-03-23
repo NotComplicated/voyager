@@ -15,6 +15,7 @@ const rl = @import("raylib");
 
 const ops = @import("ops.zig");
 const windows = @import("windows.zig");
+const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const FontSize = resources.FontSize;
 const Font = resources.Font;
@@ -51,32 +52,6 @@ const rl_config = rl.ConfigFlags{
 
 pub const double_click_delay = 300;
 
-fn rgb(r: u8, g: u8, b: u8) clay.Color {
-    return .{ .r = @floatFromInt(r), .g = @floatFromInt(g), .b = @floatFromInt(b) };
-}
-
-pub fn opacity(color: clay.Color, alpha: f32) clay.Color {
-    return .{ .r = color.r, .g = color.g, .b = color.b, .a = alpha * 255 };
-}
-
-pub const theme = .{
-    .alert = rgb(247, 55, 87),
-    .dim_text = rgb(164, 168, 184),
-    .text = rgb(205, 214, 244),
-    .bright_text = rgb(255, 255, 255),
-    .highlight = rgb(203, 166, 247),
-    .nav = rgb(43, 43, 58),
-    .base = rgb(30, 30, 46),
-    .dim = rgb(17, 17, 26),
-    .bright = rgb(34, 34, 49),
-    .hovered = rgb(43, 43, 58),
-    .selected = rgb(59, 59, 71),
-    .bg = rgb(24, 24, 37),
-    .pitch_black = rgb(17, 17, 27),
-};
-
-const title_color = windows.colorFromClay(theme.bg);
-
 pub const rounded = clay.CornerRadius.all(6);
 
 pub fn convertVector(v: rl.Vector2) clay.Vector2 {
@@ -84,7 +59,7 @@ pub fn convertVector(v: rl.Vector2) clay.Vector2 {
 }
 
 pub fn text(contents: []const u8) void {
-    textEx(.roboto, .md, contents, theme.text);
+    textEx(.roboto, .md, contents, themes.current.text);
 }
 
 pub fn textEx(comptime font: Font, comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
@@ -190,8 +165,8 @@ pub fn main() !void {
         _ = windows.DwmSetWindowAttribute(
             windows.getHandle(),
             windows.dwma_caption_color,
-            &title_color,
-            @sizeOf(@TypeOf(title_color)),
+            &windows.colorFromClay(themes.current.bg),
+            @sizeOf(windows.Color),
         );
     }
     defer if (is_windows) windows.deinit();

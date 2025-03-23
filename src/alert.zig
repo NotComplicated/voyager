@@ -7,6 +7,7 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const themes = @import("themes.zig");
 const Model = @import("Model.zig");
 
 const error_duration = 1_500;
@@ -88,11 +89,11 @@ pub fn render() void {
                 .child_alignment = clay.Element.Config.Layout.ChildAlignment.center,
             },
             .rectangle = .{
-                .color = main.opacity(main.theme.alert, alpha),
+                .color = themes.opacity(themes.current.alert, alpha),
                 .corner_radius = main.rounded,
             },
         })({
-            main.textEx(.roboto, .lg, alert.msg.items, main.opacity(main.theme.text, alpha));
+            main.textEx(.roboto, .lg, alert.msg.items, themes.opacity(themes.current.text, alpha));
         });
     }
 }

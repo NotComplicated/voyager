@@ -7,6 +7,7 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const themes = @import("themes.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -74,7 +75,7 @@ pub fn render() void {
                     .child_alignment = .{ .x = .center },
                 },
                 .rectangle = .{
-                    .color = main.theme.pitch_black,
+                    .color = themes.current.pitch_black,
                     .corner_radius = main.rounded,
                 },
             })({

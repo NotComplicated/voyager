@@ -12,6 +12,7 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const themes = @import("themes.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
@@ -209,7 +210,18 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
 
                         .escape => self.cursor = .none,
 
-                        .tab => if (kind == .path) self.updateCompletions(if (input.shift) .backward else .forward) else {
+                        .tab => if (kind == .path) {
+                            if (self.tab_complete.completions.items.len == 1) switch (self.tab_complete.state) {
+                                .unloaded, .just_updated => {},
+                                .selecting => |current| {
+                                    const start, const end = self.tab_complete.completions.items[current];
+                                    try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
+                                    self.cursor = .{ .at = self.value().len };
+                                    return null;
+                                },
+                            };
+                            self.updateCompletions(if (input.shift) .backward else .forward);
+                        } else {
                             self.cursor = .none;
                         },
 
@@ -406,21 +418,21 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                 },
                 .scroll = .{ .horizontal = true },
                 .rectangle = .{
-                    .color = if (self.cursor == .none) main.theme.nav else main.theme.selected,
+                    .color = if (self.cursor == .none) themes.current.nav else themes.current.selected,
                     .corner_radius = main.rounded,
                 },
             })({
                 main.ibeam();
 
                 switch (self.cursor) {
-                    .none => main.textEx(.roboto_mono, .md, self.content.items, main.theme.text),
+                    .none => main.textEx(.roboto_mono, .md, self.content.items, themes.current.text),
 
                     .at => |index| {
                         main.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[0..index],
-                            main.theme.text,
+                            themes.current.text,
                         );
                         if ((self.timer / ibeam_blink_interval) % 2 == 0) {
                             clay.ui()(.{
@@ -437,7 +449,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                                     .roboto_mono,
                                     .lg,
                                     "|",
-                                    main.theme.bright_text,
+                                    themes.current.bright_text,
                                 );
                             });
                         }
@@ -445,7 +457,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                             .roboto_mono,
                             .md,
                             self.content.items[index..],
-                            main.theme.text,
+                            themes.current.text,
                         );
                     },
 
@@ -454,23 +466,23 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                             .roboto_mono,
                             .md,
                             self.content.items[0..selection.left()],
-                            main.theme.text,
+                            themes.current.text,
                         );
                         clay.ui()(.{
-                            .rectangle = .{ .color = main.theme.highlight },
+                            .rectangle = .{ .color = themes.current.highlight },
                         })({
                             main.textEx(
                                 .roboto_mono,
                                 .md,
                                 self.content.items[selection.left()..selection.right()],
-                                main.theme.base,
+                                themes.current.base,
                             );
                         });
                         main.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[selection.right()..],
-                            main.theme.text,
+                            themes.current.text,
                         );
                     },
                 }
@@ -483,7 +495,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                             .roboto_mono,
                             .md,
                             self.tab_complete.names.items[start..end],
-                            main.theme.dim_text,
+                            themes.current.dim_text,
                         );
                     },
                 };

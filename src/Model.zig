@@ -5,6 +5,7 @@ const mem = std.mem;
 const fs = std.fs;
 
 const main = @import("main.zig");
+const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
@@ -145,7 +146,7 @@ pub fn render(model: Model) void {
             .sizing = clay.Element.Sizing.grow(.{}),
             .layout_direction = .top_to_bottom,
         },
-        .rectangle = .{ .color = main.theme.base },
+        .rectangle = .{ .color = themes.current.base },
     })({
         clay.ui()(.{
             .id = tabs_id,
@@ -158,7 +159,7 @@ pub fn render(model: Model) void {
                 .child_alignment = .{ .y = .center },
                 .child_gap = 0,
             },
-            .rectangle = .{ .color = main.theme.bg },
+            .rectangle = .{ .color = themes.current.bg },
         })({
             const tab_width = @min(width / model.tabs.items.len, max_tab_width);
 
@@ -177,11 +178,11 @@ pub fn render(model: Model) void {
                     },
                     .rectangle = .{
                         .color = if (hovered)
-                            main.theme.bright
+                            themes.current.bright
                         else if (selected)
-                            main.theme.base
+                            themes.current.base
                         else
-                            main.theme.dim,
+                            themes.current.dim,
                     },
                 })({
                     clay.ui()(.{
@@ -204,10 +205,10 @@ pub fn render(model: Model) void {
                     const name = tab.tabName();
                     const chars = tab_width / 16;
                     if (name.len > chars) {
-                        main.textEx(.roboto, .sm, name[0..chars -| "...".len], main.theme.dim_text);
-                        main.textEx(.roboto, .sm, "...", main.theme.dim_text);
+                        main.textEx(.roboto, .sm, name[0..chars -| "...".len], themes.current.dim_text);
+                        main.textEx(.roboto, .sm, "...", themes.current.dim_text);
                     } else {
-                        main.textEx(.roboto, .sm, name, main.theme.dim_text);
+                        main.textEx(.roboto, .sm, name, themes.current.dim_text);
                     }
 
                     clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.grow(.{}) } })({});

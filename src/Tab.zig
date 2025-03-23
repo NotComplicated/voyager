@@ -13,6 +13,7 @@ const rl = @import("raylib");
 const main = @import("main.zig");
 const ops = @import("ops.zig");
 const windows = @import("windows.zig");
+const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
@@ -53,7 +54,7 @@ fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
             .source_dimensions = clay.Dimensions.square(Model.row_height),
         },
         .rectangle = .{
-            .color = if (clay.pointerOver(id)) main.theme.hovered else main.theme.base,
+            .color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.base,
             .corner_radius = main.rounded,
         },
     })({
@@ -102,7 +103,14 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
 
     if (try tab.cwd.update(input)) |message| {
         switch (message) {
-            .submit => |path| try tab.loadEntries(path),
+            .submit => |path| tab.loadEntries(path) catch |err| switch (err) {
+                Model.Error.OpenDirFailure => {
+                    const path_z = try main.alloc.dupeZ(u8, path);
+                    defer main.alloc.free(path_z);
+                    try openFileAt(path_z);
+                },
+                else => return err,
+            },
         }
     }
 
@@ -227,7 +235,7 @@ pub fn render(tab: Tab) void {
             .layout = .{
                 .sizing = clay.Element.Sizing.grow(.{}),
             },
-            .rectangle = .{ .color = main.theme.bg },
+            .rectangle = .{ .color = themes.current.bg },
         })({
             const shortcut_width = 260; // TODO customizable
 
@@ -315,9 +323,13 @@ fn openParentDir(tab: *Tab) Model.Error!void {
 }
 
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {
-    if (!main.is_windows) return Model.Error.OsNotSupported;
-    const path = try fs.path.joinZ(main.alloc, &.{ tab.cwd.value(), name });
+    const path = try fs.path.joinZ(main.alloc, &.{ tab.cached_cwd.items, name });
     defer main.alloc.free(path);
+    try openFileAt(path);
+}
+
+fn openFileAt(path: [:0]const u8) Model.Error!void {
+    if (!main.is_windows) return Model.Error.OsNotSupported;
     const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, null, null, 0));
     if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
 }
