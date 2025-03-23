@@ -26,6 +26,7 @@ pub const Error = error{
     OutOfBounds,
     OpenDirFailure,
     DirAccessDenied,
+    AlreadyExists,
     DeleteDirFailure,
     DeleteFileFailure,
     RestoreFailure,

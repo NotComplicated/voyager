@@ -492,12 +492,6 @@ pub fn render(entries: Entries) void {
         .child_gap = 4,
     };
 
-    const iconPad = struct {
-        fn f() void {
-            clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) } })({});
-        }
-    }.f;
-
     clay.ui()(.{
         .id = container_id,
         .layout = .{
@@ -514,7 +508,7 @@ pub fn render(entries: Entries) void {
             .id = main.newId("EntriesColumns"),
             .layout = entry_layout,
         })({
-            iconPad();
+            clay.ui()(.{ .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) } })({});
 
             const column = struct {
                 fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Element.Sizing) void {
@@ -593,7 +587,13 @@ pub fn render(entries: Entries) void {
                             .corner_radius = main.rounded,
                         },
                     })({
-                        iconPad();
+                        clay.ui()(.{
+                            .layout = .{ .sizing = clay.Element.Sizing.fixed(resources.file_icon_size) },
+                            .image = .{
+                                .image_data = if (kind == .dir) &resources.images.add_folder else &resources.images.add_file,
+                                .source_dimensions = clay.Dimensions.square(resources.file_icon_size),
+                            },
+                        })({});
                         clay.ui()(.{ .layout = .{ .sizing = name_sizing } })({
                             new_item.name.render();
                         });

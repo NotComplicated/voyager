@@ -34,6 +34,7 @@ const image_filenames = .{
     .tab_right_dim = "tab-right-dim.png",
     .plus = "plus.png",
     .add_file = "add-file.png",
+    .add_folder = "add-folder.png",
     .arrow_up = "arrow-up.png",
     .clipboard = "clipboard.png",
     .compare = "compare.png",

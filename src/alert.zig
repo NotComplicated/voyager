@@ -26,23 +26,20 @@ pub fn update(err: anyerror) void {
     alert.msg.clearRetainingCapacity();
     var writer = alert.msg.writer(main.alloc);
     switch (err) {
-        Model.Error.OsNotSupported => _ = writer.write("Error: OS not yet supported") catch process.abort(),
-        Model.Error.DeleteDirFailure => _ = writer.write("Failed to delete folder.") catch process.abort(),
-        Model.Error.DeleteFileFailure => _ = writer.write("Failed to delete file.") catch process.abort(),
-        Model.Error.RestoreFailure => _ = writer.write("Failed to restore from Recycle Bin.") catch process.abort(),
-        Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => {
-            _ = writer.write("Error: Unable to open this folder") catch process.abort();
-        },
+        Model.Error.OsNotSupported => writer.writeAll("Action not supported on this system.") catch process.abort(),
+        Model.Error.AlreadyExists => writer.writeAll("A file with this name already exists.") catch process.abort(),
+        Model.Error.DeleteDirFailure => writer.writeAll("Failed to delete folder.") catch process.abort(),
+        Model.Error.DeleteFileFailure => writer.writeAll("Failed to delete file.") catch process.abort(),
+        Model.Error.RestoreFailure => writer.writeAll("Failed to restore from Recycle Bin.") catch process.abort(),
+        Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => writer.writeAll("Unable to open this folder.") catch process.abort(),
         else => {
             const err_name = @errorName(err);
-            _ = writer.write("Error: \"") catch process.abort();
+            _ = writer.writeAll("Error: \"") catch process.abort();
             for (err_name, 0..) |c, i| {
-                if (ascii.isUpper(c) and i != 0) {
-                    _ = writer.writeByte(' ') catch process.abort();
-                }
-                _ = writer.writeByte(ascii.toLower(c)) catch process.abort();
+                if (ascii.isUpper(c) and i != 0) writer.writeByte(' ') catch process.abort();
+                writer.writeByte(ascii.toLower(c)) catch process.abort();
             }
-            _ = writer.writeByte('"') catch process.abort();
+            writer.writeByte('"') catch process.abort();
         },
     }
 }

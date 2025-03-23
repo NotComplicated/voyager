@@ -164,7 +164,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - create.name.len);
                 switch (create.kind) {
                     .dir => fs.makeDirAbsolute(tab.cached_cwd.items) catch |err| switch (err) {
-                        error.PathAlreadyExists => alert.updateFmt("A folder with this name already exists.", .{}),
+                        error.PathAlreadyExists => return Model.Error.AlreadyExists,
                         else => {
                             alert.update(err);
                             return null;
@@ -174,12 +174,12 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                         const file = fs.createFileAbsolute(
                             tab.cached_cwd.items,
                             .{ .exclusive = true },
-                        ) catch |err| {
-                            switch (err) {
-                                error.PathAlreadyExists => alert.updateFmt("A file with this name already exists.", .{}),
-                                else => alert.update(err),
-                            }
-                            return null;
+                        ) catch |err| switch (err) {
+                            error.PathAlreadyExists => return Model.Error.AlreadyExists,
+                            else => {
+                                alert.update(err);
+                                return null;
+                            },
                         };
                         file.close();
                     },
