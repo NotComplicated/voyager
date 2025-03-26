@@ -45,20 +45,24 @@ const nav_buttons = .{
     .vscode = clay.id("VsCode"),
 };
 
-fn renderNavButton(id: clay.Element.Config.Id, icon: *rl.Texture) void {
+fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
     clay.ui()(.{
         .id = id,
         .layout = .{ .sizing = .fixed(Model.row_height) },
-        .image = .{
-            .image_data = icon,
-            .source_dimensions = .square(Model.row_height),
-        },
-        .rectangle = .{
-            .color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.base,
-            .corner_radius = main.rounded,
-        },
+        .bg_color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.base,
+        .corner_radius = main.rounded,
     })({
         main.pointer();
+
+        clay.ui()(.{
+            .layout = .{
+                .sizing = .grow(.{}),
+            },
+            .image = .{
+                .image_data = icon,
+                .source_dimensions = .square(Model.row_height),
+            },
+        })({});
     });
 }
 
@@ -83,13 +87,12 @@ pub fn deinit(tab: *Tab) void {
 }
 
 pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
-    const input_active = tab.cwd.isActive() or tab.entries.isActive();
-
     if (main.is_debug and input.clicked(.middle)) {
         log.debug("{}", .{tab});
-    } else if (!input_active) {
+    } else if (!tab.cwd.isActive() and !tab.entries.isActive()) {
         if (input.clicked(.side)) {
             try tab.openParentDir();
+            return null;
         } else if (input.clicked(.left)) {
             inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
                 if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
@@ -98,6 +101,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                         .refresh => try tab.reloadEntries(),
                         .vscode => try tab.openVscode(),
                     }
+                    return null;
                 }
             }
         }
@@ -114,9 +118,10 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 else => return err,
             },
         }
+        return null;
     }
 
-    if (input.action) |action| if (!input_active) switch (action) {
+    if (!tab.cwd.isActive()) if (input.action) |action| switch (action) {
         .mouse => {},
         .event => |event| if (main.is_windows) switch (event) {
             .copy => {},
@@ -145,7 +150,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
         },
     };
 
-    if (try tab.entries.update(input, !input_active)) |message| {
+    if (try tab.entries.update(input, !tab.cwd.isActive())) |message| {
         switch (message) {
             .open => |open| switch (open.kind) {
                 .dir => return .{ .open_dirs = open.names },
@@ -267,7 +272,7 @@ pub fn render(tab: Tab) void {
             .layout = .{
                 .sizing = .grow(.{}),
             },
-            .rectangle = .{ .color = themes.current.bg },
+            .bg_color = themes.current.bg,
         })({
             const shortcut_width = 260; // TODO customizable
 

@@ -196,6 +196,7 @@ pub fn restore(disk: u8, ids: []const windows.RecycleId) if (main.is_windows) Mo
                 );
                 defer main.alloc.free(meta_path);
                 const meta: windows.RecycleMeta = try readRecycleMeta(meta_path);
+                defer main.alloc.free(meta.restore_path);
 
                 const trash_path = trash: {
                     const index = mem.lastIndexOfScalar(u8, meta_path, '\\') orelse return Model.Error.RestoreFailure;

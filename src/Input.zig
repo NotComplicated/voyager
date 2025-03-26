@@ -186,7 +186,7 @@ pub fn clicked(input: Input, button: rl.MouseButton) bool {
     return meta.eql(input.action, .{ .mouse = .{ .state = .pressed, .button = button } });
 }
 
-pub fn offset(input: Input, id: clay.Element.Config.Id) ?clay.Vector2 {
+pub fn offset(input: Input, id: clay.Id) ?clay.Vector2 {
     const bounds = main.getBounds(id) orelse return null;
     return .{ .x = input.mouse_pos.x - bounds.x, .y = input.mouse_pos.y - bounds.y };
 }

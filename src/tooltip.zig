@@ -64,18 +64,17 @@ pub fn render() void {
 
             clay.ui()(.{
                 .id = clay.id("ToolTip"),
-                .floating = .{
-                    .offset = pos,
-                    .z_index = 1,
-                    .pointer_capture_mode = .passthrough,
-                },
                 .layout = .{
                     .padding = .xy(16, 8),
                     .child_alignment = .{ .x = .center },
                 },
-                .rectangle = .{
-                    .color = themes.current.pitch_black,
-                    .corner_radius = main.rounded,
+                .bg_color = themes.current.pitch_black,
+                .corner_radius = main.rounded,
+                .floating = .{
+                    .offset = pos,
+                    .z_index = 1,
+                    .pointer_capture_mode = .passthrough,
+                    .attach_to = .root,
                 },
             })({
                 main.text(tooltip.msg.items);

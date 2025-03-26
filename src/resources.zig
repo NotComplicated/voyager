@@ -14,7 +14,7 @@ const font_filenames = .{
     .roboto_mono = "roboto-mono.ttf",
 };
 
-pub const Font = meta.FieldEnum(@TypeOf(font_filenames));
+pub const Font: type = meta.FieldEnum(@TypeOf(font_filenames));
 
 pub const FontSize = enum(u16) {
     sm = 18,
@@ -22,6 +22,8 @@ pub const FontSize = enum(u16) {
     lg = 30,
     xl = 40,
 };
+
+var fonts: [meta.fields(@TypeOf(font_filenames)).len * meta.tags(FontSize).len]rl.Font = undefined;
 
 const image_filenames = .{
     .x = "x.png",
@@ -61,6 +63,10 @@ pub var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), 
 pub const file_icon_size = 36;
 
 var file_icons: [6][6]rl.Texture = undefined;
+
+pub fn getFonts() []const rl.Font {
+    return &fonts;
+}
 
 pub fn getFileIcon(file_name: []const u8) *rl.Texture {
     const ExtensionMap = std.StaticStringMapWithEql(struct { u3, u3 }, std.static_string_map.eqlAsciiIgnoreCase);
@@ -131,7 +137,7 @@ pub fn init() !void {
     const filetypes = try rl.Image.fromTexture(images.filetypes);
     defer filetypes.unload();
     for (0..6) |i| for (0..6) |j| {
-        const icon = filetypes.copyRec(rl.Rectangle.init(
+        const icon = filetypes.copyRec(.init(
             @floatFromInt(j * file_icon_size),
             @floatFromInt(i * file_icon_size),
             file_icon_size,
@@ -143,7 +149,7 @@ pub fn init() !void {
     errdefer for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
 
     inline for (comptime meta.fieldNames(@TypeOf(font_filenames)), 0..) |font_name, i| {
-        inline for (comptime enums.values(FontSize), 0..) |size, j| {
+        for (meta.tags(FontSize), 0..) |size, j| {
             const font = try rl.Font.fromMemory(
                 ".ttf",
                 @embedFile(resources_path ++ @field(font_filenames, font_name)),
@@ -151,14 +157,15 @@ pub fn init() !void {
                 null,
             );
             rl.setTextureFilter(font.texture, .anisotropic_8x);
-            renderer.addFont(@intCast(i * enums.values(FontSize).len + j), font);
+            fonts[i * meta.tags(FontSize).len + j] = font;
         }
     }
+
+    clay.setMeasureTextFunction(rl.Font, &fonts, renderer.measureText);
 }
 
 pub fn deinit() void {
     inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
     for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
-    inline for (0..comptime meta.fields(@TypeOf(font_filenames)).len) |i|
-        for (0..comptime enums.values(FontSize).len) |j| renderer.getFont(@intCast(i * enums.values(FontSize).len + j)).unload();
+    for (fonts) |font| font.unload();
 }

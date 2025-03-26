@@ -200,9 +200,9 @@ const type_chars = 12;
 const size_chars = 16;
 const timespan_chars = 20;
 
-fn getSizing(chars: comptime_int) clay.Element.Sizing {
+fn getSizing(chars: comptime_int) clay.Config.Layout.Sizing {
     return .{
-        .width = clay.Element.Sizing.Axis.fit(.{
+        .width = .fit(.{
             .min = chars * char_px_width,
             .max = chars * char_px_width,
         }),
@@ -216,13 +216,13 @@ fn kinds() []const Kind {
     return enums.values(Kind);
 }
 
-fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) clay.Element.Config.Id {
+fn getEntryId(comptime kind: Kind, comptime suffix: []const u8, index: Index) clay.Id {
     comptime var kind_name = @tagName(kind).*;
     kind_name[0] = comptime ascii.toUpper(kind_name[0]);
     return clay.idi(kind_name[0..] ++ "Entry" ++ suffix, index);
 }
 
-fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Element.Config.Id {
+fn getColumnId(comptime title: []const u8, comptime suffix: []const u8) clay.Id {
     return clay.id("EntriesColumn" ++ title ++ suffix);
 }
 
@@ -334,7 +334,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
                 return .{ .create = .{ .kind = new_item.kind, .name = try new_item.name.toOwned() } };
             },
         };
-        if (!new_item.name.isActive()) {
+        if (!focused or !new_item.name.isActive()) {
             new_item.name.deinit();
             entries.new_item = null;
         }
@@ -365,8 +365,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
             }
         }
     } else if (input.action) |action| {
-        if (!focused) return null;
-        switch (action) {
+        if (focused) switch (action) {
             .mouse, .event => {},
             .key => |key| switch (key) {
                 .char => |char| if (input.ctrl) switch (char) {
@@ -437,7 +436,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
 
                 else => {},
             },
-        }
+        };
     } else if (clay.pointerOver(container_id)) {
         if (tooltip.update(input)) |writer| {
             inline for (comptime kinds()) |kind| {
@@ -482,9 +481,9 @@ pub fn render(entries: Entries) void {
     const shortcuts_width = 280; // TODO
     const max_name_len = if (entries.new_item != null) @max(min_new_item_len, entries.max_name_len) else entries.max_name_len;
     const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
-    const name_sizing = clay.Element.Sizing{ .width = .fixed(@floatFromInt(name_chars * char_px_width)) };
-    const entry_layout = clay.Element.Config.Layout{
-        .padding = .{ .top = 4, .bottom = 4, .left = 8 },
+    const name_sizing = clay.Config.Layout.Sizing{ .width = .fixed(@floatFromInt(name_chars * char_px_width)) };
+    const entry_layout = clay.Config.Layout{
+        .padding = .{ .top = 4, .bottom = 8, .left = 8 },
         .sizing = .{ .width = .grow(.{}) },
         .child_alignment = .{ .y = .center },
         .child_gap = 4,
@@ -506,7 +505,7 @@ pub fn render(entries: Entries) void {
             clay.ui()(.{ .layout = .{ .sizing = .fixed(resources.file_icon_size) } })({});
 
             const column = struct {
-                fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Element.Sizing) void {
+                fn f(passed_entries: Entries, comptime sorting: Sorting, sizing: clay.Config.Layout.Sizing) void {
                     const title = comptime sorting.toTitle();
                     const id = getColumnId(title, "");
                     clay.ui()(.{
@@ -516,10 +515,8 @@ pub fn render(entries: Entries) void {
                             .sizing = sizing,
                             .child_gap = 6,
                         },
-                        .rectangle = .{
-                            .color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.bg,
-                            .corner_radius = main.rounded,
-                        },
+                        .bg_color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.bg,
+                        .corner_radius = main.rounded,
                     })({
                         main.pointer();
                         main.text(title);
@@ -564,28 +561,29 @@ pub fn render(entries: Entries) void {
                 .padding = .all(10),
                 .sizing = .{
                     .width = .grow(.{ .max = @floatFromInt(width -| shortcuts_width) }),
-                    .height = .grow(.{ .max = 1 }), // hacky fix for element leaking off-screen
+                    .height = .grow(.{}),
                 },
-                .child_gap = 4,
                 .layout_direction = .top_to_bottom,
             },
+            .bg_color = themes.current.base,
+            .corner_radius = main.rounded,
             .scroll = .{ .vertical = true },
-            .rectangle = .{ .color = themes.current.base, .corner_radius = main.rounded },
         })({
             inline for (comptime kinds()) |kind| {
                 if (entries.new_item) |new_item| if (new_item.kind == kind) {
                     clay.ui()(.{
                         .id = clay.id("NewItem"),
                         .layout = entry_layout,
-                        .rectangle = .{
-                            .color = themes.current.base,
-                            .corner_radius = main.rounded,
-                        },
+                        .bg_color = themes.current.base,
+                        .corner_radius = main.rounded,
                     })({
                         clay.ui()(.{
                             .layout = .{ .sizing = .fixed(resources.file_icon_size) },
                             .image = .{
-                                .image_data = if (kind == .dir) &resources.images.add_folder else &resources.images.add_file,
+                                .image_data = if (kind == .dir)
+                                    &resources.images.add_folder
+                                else
+                                    &resources.images.add_file,
                                 .source_dimensions = .square(resources.file_icon_size),
                             },
                         })({});
@@ -611,15 +609,13 @@ pub fn render(entries: Entries) void {
                     clay.ui()(.{
                         .id = entry_id,
                         .layout = entry_layout,
-                        .rectangle = .{
-                            .color = if (entry.selected)
-                                themes.current.selected
-                            else if (clay.pointerOver(entry_id))
-                                themes.current.hovered
-                            else
-                                themes.current.base,
-                            .corner_radius = main.rounded,
-                        },
+                        .bg_color = if (entry.selected)
+                            themes.current.selected
+                        else if (clay.pointerOver(entry_id))
+                            themes.current.hovered
+                        else
+                            themes.current.base,
+                        .corner_radius = main.rounded,
                     })({
                         if (clay.pointerOver(entries_id)) main.pointer();
 

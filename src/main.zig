@@ -90,7 +90,7 @@ pub fn ibeam() void {
 
 var focused = true;
 
-pub fn getBounds(id: clay.Element.Config.Id) ?clay.BoundingBox {
+pub fn getBounds(id: clay.Id) ?clay.BoundingBox {
     const data = clay.getElementData(id);
     if (!data.found) {
         alert.updateFmt("Failed to locate element '{s}:{}'", .{ id.string_id, id.offset });
@@ -115,7 +115,6 @@ pub fn main() !void {
     defer alloc.free(@as([*]u8, @ptrCast(arena.memory))[0..arena.capacity]);
 
     _ = clay.initialize(arena, .{ .width = width, .height = height }, .{ .function = alert.updateClay });
-    clay.setMeasureTextFunction(renderer.measureText);
     clay.setDebugModeEnabled(is_debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
@@ -175,7 +174,7 @@ fn frame(model: *Model) void {
     defer rl.endDrawing();
 
     clay.beginLayout();
-    defer renderer.render(clay.endLayout());
+    defer renderer.render(clay.endLayout(), resources.getFonts().ptr);
 
     cursor = .default;
     defer rl.setMouseCursor(cursor);

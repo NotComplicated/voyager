@@ -15,6 +15,7 @@ const rl = @import("raylib");
 
 tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
+dragging: ?struct { x_pos: f32, tab_offset: f32 },
 
 const Model = @This();
 
@@ -39,9 +40,9 @@ const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = clay.id("NewTab");
 
-fn getTabIds(key: []const u8) [max_tabs]clay.Element.Config.Id {
+fn getTabIds(key: []const u8) [max_tabs]clay.Id {
     @setEvalBranchQuota(1500); // not sure why this needs to be here
-    var ids: [max_tabs]clay.Element.Config.Id = undefined;
+    var ids: [max_tabs]clay.Id = undefined;
     for (&ids, 0..) |*id, index| id.* = clay.idi(key, index);
     return ids;
 }
@@ -53,6 +54,7 @@ pub fn init() Error!Model {
     var model = Model{
         .tabs = .empty,
         .curr_tab = 0,
+        .dragging = null,
     };
     errdefer model.tabs.deinit(main.alloc);
 
@@ -71,6 +73,7 @@ pub fn deinit(model: *Model) void {
 
 pub fn update(model: *Model, input: Input) Error!void {
     if (clay.pointerOver(new_tab_id) and input.clicked(.left)) try model.newTab();
+
     for (0..model.tabs.items.len) |index| {
         const tab_index: TabIndex = @intCast(index);
         if (clay.pointerOver(close_tab_ids[index]) and input.clicked(.left)) {
@@ -79,6 +82,8 @@ pub fn update(model: *Model, input: Input) Error!void {
         } else if (clay.pointerOver(tab_ids[index])) {
             if (input.clicked(.left)) {
                 model.curr_tab = tab_index;
+                const offset = input.offset(tab_ids[index]) orelse return;
+                model.dragging = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x };
                 return;
             }
             if (input.clicked(.middle)) {
@@ -89,6 +94,14 @@ pub fn update(model: *Model, input: Input) Error!void {
     }
 
     if (input.action) |action| switch (action) {
+        .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
+            .pressed => {},
+            .down => if (model.dragging) |*dragging| {
+                dragging.x_pos = input.mouse_pos.x;
+            },
+            .released => model.dragging = null,
+        },
+
         .key => |key| switch (key) {
             .char => |c| switch (c) {
                 'w' => if (input.ctrl) {
@@ -114,7 +127,8 @@ pub fn update(model: *Model, input: Input) Error!void {
             },
             else => {},
         },
-        else => {},
+
+        .event => {},
     };
 
     if (try model.currTab().update(input)) |message| switch (message) {
@@ -146,7 +160,7 @@ pub fn render(model: Model) void {
             .sizing = .grow(.{}),
             .layout_direction = .top_to_bottom,
         },
-        .rectangle = .{ .color = themes.current.base },
+        .bg_color = themes.current.base,
     })({
         clay.ui()(.{
             .id = tabs_id,
@@ -159,13 +173,19 @@ pub fn render(model: Model) void {
                 .child_alignment = .{ .y = .center },
                 .child_gap = 0,
             },
-            .rectangle = .{ .color = themes.current.bg },
+            .bg_color = themes.current.bg,
         })({
             const tab_width = @min(width / model.tabs.items.len, max_tab_width);
 
             for (model.tabs.items, 0..) |tab, index| {
                 const selected = index == model.curr_tab;
                 const hovered = !selected and clay.pointerOver(tab_ids[index]);
+
+                const floating = if (selected) if (model.dragging) |dragging| clay.Config.Floating{
+                    .offset = .{ .x = dragging.x_pos - dragging.tab_offset },
+                    .z_index = 2,
+                    .parent_id = tabs_id.id,
+                } else null else null;
 
                 clay.ui()(.{
                     .id = tab_ids[index],
@@ -176,14 +196,13 @@ pub fn render(model: Model) void {
                         },
                         .child_alignment = .{ .x = .center, .y = .center },
                     },
-                    .rectangle = .{
-                        .color = if (hovered)
-                            themes.current.bright
-                        else if (selected)
-                            themes.current.base
-                        else
-                            themes.current.dim,
-                    },
+                    .floating = floating,
+                    .bg_color = if (hovered)
+                        themes.current.bright
+                    else if (selected)
+                        themes.current.base
+                    else
+                        themes.current.dim,
                 })({
                     clay.ui()(.{
                         .layout = .{

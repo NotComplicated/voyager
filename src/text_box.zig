@@ -17,7 +17,7 @@ const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
+pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
     return struct {
         content: main.ArrayList(u8),
         cursor: Cursor,
@@ -419,11 +419,9 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                     },
                     .child_alignment = .{ .y = .center },
                 },
+                .bg_color = if (self.cursor == .none) themes.current.nav else themes.current.selected,
+                .corner_radius = main.rounded,
                 .scroll = .{ .horizontal = true },
-                .rectangle = .{
-                    .color = if (self.cursor == .none) themes.current.nav else themes.current.selected,
-                    .corner_radius = main.rounded,
-                },
             })({
                 main.ibeam();
 
@@ -444,8 +442,9 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                                         .x = @floatFromInt(index * char_px_width + ibeam_x_offset),
                                         .y = ibeam_y_offset,
                                     },
-                                    .attachment = .{ .element = .left_center, .parent = .left_center },
+                                    .attach_points = .{ .element = .left_center, .parent = .left_center },
                                     .pointer_capture_mode = .passthrough,
+                                    .attach_to = .parent,
                                 },
                             })({
                                 main.textEx(
@@ -472,7 +471,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Element.Config.Id) type {
                             themes.current.text,
                         );
                         clay.ui()(.{
-                            .rectangle = .{ .color = themes.current.highlight },
+                            .bg_color = themes.current.highlight,
                         })({
                             main.textEx(
                                 .roboto_mono,

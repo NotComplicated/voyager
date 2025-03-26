@@ -51,7 +51,7 @@ pub fn updateFmt(comptime format: []const u8, args: anytype) void {
         alert.msg.appendSlice(main.alloc, unexpected_error) catch process.abort();
 }
 
-pub inline fn updateClay(err_data: clay.Error.Data) void {
+pub inline fn updateClay(err_data: clay.ErrorData) void {
     alert.timer = 0;
     alert.msg.clearRetainingCapacity();
     alert.msg.appendSlice(main.alloc, "Error: ") catch process.abort();
@@ -74,21 +74,20 @@ pub fn render() void {
 
         clay.ui()(.{
             .id = clay.id("ErrorModal"),
-            .floating = .{
-                .offset = .{ .x = -24, .y = -24 },
-                .z_index = 1,
-                .attachment = .{ .element = .right_bottom, .parent = .right_bottom },
-                .pointer_capture_mode = .passthrough,
-            },
             .layout = .{
                 .sizing = .{ .height = .fixed(60) },
                 .padding = .horizontal(12),
                 .child_alignment = .center,
             },
-            .rectangle = .{
-                .color = themes.opacity(themes.current.alert, alpha),
-                .corner_radius = main.rounded,
+            .bg_color = themes.opacity(themes.current.alert, alpha),
+            .floating = .{
+                .offset = .{ .x = -24, .y = -24 },
+                .z_index = 1,
+                .attach_points = .{ .element = .right_bottom, .parent = .right_bottom },
+                .pointer_capture_mode = .passthrough,
+                .attach_to = .root,
             },
+            .corner_radius = main.rounded,
         })({
             main.textEx(.roboto, .lg, alert.msg.items, themes.opacity(themes.current.text, alpha));
         });
