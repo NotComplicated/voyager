@@ -264,7 +264,7 @@ pub fn render(tab: Tab) void {
 
             tab.cwd.render();
 
-            renderNavButton(nav_buttons.vscode, &resources.images.vscode);
+            if (main.is_windows and windows.vscode_available) renderNavButton(nav_buttons.vscode, &resources.images.vscode);
         });
 
         clay.ui()(.{
@@ -372,14 +372,11 @@ fn openFileAt(path: [:0]const u8) Model.Error!void {
 }
 
 fn openVscode(tab: Tab) Model.Error!void {
-    if (main.is_windows) {
-        const path = try main.alloc.dupeZ(u8, tab.cwd.value());
-        defer main.alloc.free(path);
-        const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, "code", path, null, 0));
-        if (status <= 32) return alert.updateFmt("Failed to open directory.", .{});
-    } else {
-        return .OsNotSupported;
-    }
+    if (!main.is_windows) return Model.Error.OsNotSupported;
+    const path = try main.alloc.dupeZ(u8, tab.cwd.value());
+    defer main.alloc.free(path);
+    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, "code", path, null, 0));
+    if (status <= 32) return alert.updateFmt("Failed to open directory.", .{});
 }
 
 fn undoDelete(tab: *Tab) Model.Error!void {

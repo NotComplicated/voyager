@@ -86,14 +86,18 @@ const copy_char = 'C' - 0x40;
 const paste_char = 'V' - 0x40;
 const undo_char = 'Z' - 0x40;
 const redo_char = 'Y' - 0x40;
-var maybe_sid: ?[]u8 = null;
 var oldWindowProc: ?WNDPROC = null;
 pub var event: ?Event = null;
+var maybe_sid: ?[]u8 = null;
+pub var vscode_available = false;
 
 pub fn init() void {
     const handle = getHandle();
     oldWindowProc = @ptrFromInt(@as(usize, @intCast(GetWindowLongPtrW(handle, gwlp_wndproc))));
     _ = SetWindowLongPtrW(handle, gwlp_wndproc, @intCast(@intFromPtr(&newWindowProc)));
+
+    const status = @intFromPtr(ShellExecuteA(getHandle(), null, "code", "--version", null, 0));
+    if (status > 32) vscode_available = true;
 }
 
 pub fn deinit() void {
