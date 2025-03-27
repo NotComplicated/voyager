@@ -2,7 +2,7 @@ const std = @import("std");
 
 const name = "voyager";
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const root = b.path("src/main.zig");
@@ -33,9 +33,11 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("clay", clay.module("clay"));
     exe.root_module.addImport("raylib", clay.module("raylib"));
+
     for (raylib_config) |config| {
-        clay.artifact("raylib").root_module.addCMacro(config.@"0", config.@"1");
+        clay.artifact("raylib").root_module.addCMacro(config[0], config[1]);
     }
+
     exe.root_module.addImport("datetime", datetime.module("datetime"));
 
     const run_cmd = b.addRunArtifact(exe);
@@ -45,7 +47,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 }
 
-const raylib_config = [_]struct { []const u8, []const u8 }{
+const raylib_config = [_][2][]const u8{
     .{ "EXTERNAL_CONFIG_FLAGS", "1" },
     .{ "SUPPORT_MODULE_RSHAPES", "1" },
     .{ "SUPPORT_MODULE_RTEXTURES", "1" },

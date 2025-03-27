@@ -35,7 +35,7 @@ pub const Error = error{
 const TabIndex = u4;
 
 pub const row_height = 30;
-pub const tabs_height = 30;
+pub const tabs_height = 32;
 const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = clay.id("NewTab");
@@ -98,6 +98,14 @@ pub fn update(model: *Model, input: Input) Error!void {
             .pressed => {},
             .down => if (model.dragging) |*dragging| {
                 dragging.x_pos = input.mouse_pos.x;
+
+                const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
+                const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
+                const pos: usize = @intFromFloat(@max(0, dragging.x_pos - dragging.tab_offset + (tab_width / 2)) / tab_width);
+                if (pos < model.tabs.items.len and pos != model.curr_tab) {
+                    mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
+                    model.curr_tab = @intCast(pos);
+                }
             },
             .released => model.dragging = null,
         },
@@ -162,6 +170,8 @@ pub fn render(model: Model) void {
         },
         .bg_color = themes.current.base,
     })({
+        const tabs_padding = 8;
+
         clay.ui()(.{
             .id = tabs_id,
             .layout = .{
@@ -169,7 +179,7 @@ pub fn render(model: Model) void {
                     .width = .grow(.{}),
                     .height = .fixed(tabs_height),
                 },
-                .padding = .horizontal(8),
+                .padding = .horizontal(tabs_padding),
                 .child_alignment = .{ .y = .center },
                 .child_gap = 0,
             },
@@ -181,10 +191,18 @@ pub fn render(model: Model) void {
                 const selected = index == model.curr_tab;
                 const hovered = !selected and clay.pointerOver(tab_ids[index]);
 
-                const floating = if (selected) if (model.dragging) |dragging| clay.Config.Floating{
-                    .offset = .{ .x = dragging.x_pos - dragging.tab_offset },
-                    .z_index = 2,
-                    .parent_id = tabs_id.id,
+                const floating = if (selected) if (model.dragging) |dragging| floating: {
+                    // Placeholder when dragging a tab
+                    clay.ui()(.{ .layout = .{ .sizing = .{ .width = .fixed(@floatFromInt(tab_width)) } } })({});
+                    const max: f32 = @floatFromInt(width - tab_width);
+                    break :floating clay.Config.Floating{
+                        .offset = .{
+                            .x = math.clamp(dragging.x_pos - dragging.tab_offset, tabs_padding, max),
+                        },
+                        .z_index = 2,
+                        .parent_id = tabs_id.id,
+                        .attach_to = .parent,
+                    };
                 } else null else null;
 
                 clay.ui()(.{
@@ -192,74 +210,91 @@ pub fn render(model: Model) void {
                     .layout = .{
                         .sizing = .{
                             .width = .fixed(@floatFromInt(tab_width)),
-                            .height = .grow(.{}),
+                            .height = .fixed(tabs_height),
                         },
-                        .child_alignment = .{ .x = .center, .y = .center },
                     },
                     .floating = floating,
-                    .bg_color = if (hovered)
-                        themes.current.bright
-                    else if (selected)
-                        themes.current.base
-                    else
-                        themes.current.dim,
                 })({
                     clay.ui()(.{
                         .layout = .{
-                            .sizing = .fixed(tabs_height),
-                        },
-                        .image = .{
-                            .image_data = if (hovered)
-                                &resources.images.tab_left_bright
-                            else if (selected)
-                                &resources.images.tab_left
-                            else
-                                &resources.images.tab_left_dim,
-                            .source_dimensions = .square(tabs_height),
-                        },
-                    })({});
-
-                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
-
-                    const name = tab.tabName();
-                    const chars = tab_width / 16;
-                    if (name.len > chars) {
-                        main.textEx(.roboto, .sm, name[0..chars -| "...".len], themes.current.dim_text);
-                        main.textEx(.roboto, .sm, "...", themes.current.dim_text);
-                    } else {
-                        main.textEx(.roboto, .sm, name, themes.current.dim_text);
-                    }
-
-                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
-
-                    clay.ui()(.{
-                        .id = close_tab_ids[index],
-                        .layout = .{
                             .sizing = .{
-                                .width = .fixed(9),
+                                .width = .fixed(tabs_height / 2),
                                 .height = .fixed(tabs_height),
                             },
                         },
+                        .bg_color = if (hovered)
+                            themes.current.bright
+                        else if (selected)
+                            themes.current.base
+                        else
+                            themes.current.dim,
                         .image = .{
-                            .image_data = if (!hovered and !selected) &resources.images.x_dim else &resources.images.x,
-                            .source_dimensions = .{ .width = 9, .height = tabs_height },
+                            .image_data = &resources.images.tab_left,
+                            .source_dimensions = .{ .width = tabs_height / 2, .height = tabs_height },
                         },
+                    })({});
+
+                    clay.ui()(.{
+                        .layout = .{
+                            .sizing = .grow(.{}),
+                            .child_alignment = .{ .x = .center, .y = .center },
+                        },
+                        .bg_color = if (hovered)
+                            themes.current.bright
+                        else if (selected)
+                            themes.current.base
+                        else
+                            themes.current.dim,
                     })({
-                        main.pointer();
+                        clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
+
+                        const name = tab.tabName();
+                        const chars = tab_width / 16;
+                        if (name.len > chars) {
+                            main.textEx(.roboto, .sm, name[0..chars -| "...".len], themes.current.dim_text);
+                            main.textEx(.roboto, .sm, "...", themes.current.dim_text);
+                        } else {
+                            main.textEx(.roboto, .sm, name, themes.current.dim_text);
+                        }
+
+                        clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
+
+                        clay.ui()(.{
+                            .id = close_tab_ids[index],
+                            .layout = .{
+                                .sizing = .{
+                                    .width = .fixed(9),
+                                    .height = .fixed(tabs_height),
+                                },
+                            },
+                            .image = .{
+                                .image_data = if (!hovered and !selected)
+                                    &resources.images.x_dim
+                                else
+                                    &resources.images.x,
+                                .source_dimensions = .{ .width = 9, .height = tabs_height },
+                            },
+                        })({
+                            main.pointer();
+                        });
                     });
 
                     clay.ui()(.{
                         .layout = .{
-                            .sizing = .fixed(tabs_height),
+                            .sizing = .{
+                                .width = .fixed(tabs_height / 2),
+                                .height = .fixed(tabs_height),
+                            },
                         },
+                        .bg_color = if (hovered)
+                            themes.current.bright
+                        else if (selected)
+                            themes.current.base
+                        else
+                            themes.current.dim,
                         .image = .{
-                            .image_data = if (hovered)
-                                &resources.images.tab_right_bright
-                            else if (selected)
-                                &resources.images.tab_right
-                            else
-                                &resources.images.tab_right_dim,
-                            .source_dimensions = .square(tabs_height),
+                            .image_data = &resources.images.tab_right,
+                            .source_dimensions = .{ .width = tabs_height / 2, .height = tabs_height },
                         },
                     })({});
                 });
@@ -281,6 +316,7 @@ pub fn render(model: Model) void {
                         .offset = .{ .x = @floatFromInt(x_offset) },
                         .z_index = 1,
                         .parent_id = tabs_id.id,
+                        .attach_to = .parent,
                     },
                 })({
                     main.pointer();

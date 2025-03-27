@@ -100,6 +100,20 @@ pub fn getBounds(id: clay.Id) ?clay.BoundingBox {
     }
 }
 
+const GlfwWindow = opaque {};
+const GlfwKeyfun = *const fn (*GlfwWindow, c_int, c_int, c_int, c_int) callconv(.c) void;
+extern fn glfwGetCurrentContext() *GlfwWindow;
+extern fn glfwSetKeyCallback(window: *GlfwWindow, callback: GlfwKeyfun) GlfwKeyfun;
+var prevKeyCallback: GlfwKeyfun = undefined;
+
+// This is the only way I know to remove screenshotting @_@
+fn keyCallback(window: *GlfwWindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.c) void {
+    switch (@as(rl.KeyboardKey, @enumFromInt(key))) {
+        rl.KeyboardKey.f12 => if (is_debug) clay.setDebugModeEnabled(true),
+        else => prevKeyCallback(window, key, scancode, action, mods),
+    }
+}
+
 pub fn main() !void {
     defer _ = if (is_debug) debug_alloc.deinit();
 
@@ -118,6 +132,9 @@ pub fn main() !void {
     clay.setDebugModeEnabled(is_debug);
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
+
+    const window = glfwGetCurrentContext();
+    prevKeyCallback = glfwSetKeyCallback(window, &keyCallback);
 
     if (is_windows) {
         windows.init();
