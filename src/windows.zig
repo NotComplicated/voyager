@@ -1,4 +1,6 @@
 const std = @import("std");
+const unicode = std.unicode;
+const math = std.math;
 const time = std.time;
 const mem = std.mem;
 const win = std.os.windows;
@@ -8,11 +10,12 @@ const rl = @import("raylib");
 
 const Color = win.DWORD;
 
-pub const Event = enum {
+pub const Event = union(enum) {
     copy,
     paste,
     undo,
     redo,
+    special_char: u21,
 };
 
 pub const NameFormat = enum(win.INT) {
@@ -172,7 +175,9 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
             paste_char => event = .paste,
             undo_char => event = .undo,
             redo_char => event = .redo,
-            else => {},
+            else => if (wparam > comptime unicode.utf8Decode2("¡".*) catch unreachable) {
+                event = .{ .special_char = math.lossyCast(u21, wparam) };
+            },
         },
         else => {},
     }

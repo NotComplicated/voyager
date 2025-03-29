@@ -1,7 +1,8 @@
 const std = @import("std");
+const unicode = std.unicode;
 const enums = std.enums;
-const fs = std.fs;
 const meta = std.meta;
+const fs = std.fs;
 
 const clay = @import("clay");
 const renderer = clay.renderers.raylib;
@@ -19,11 +20,40 @@ pub const Font: type = meta.FieldEnum(@TypeOf(font_filenames));
 pub const FontSize = enum(u16) {
     sm = 18,
     md = 20,
-    lg = 22,
-    xl = 24,
+    lg = 24,
+    xl = 30,
 };
 
-pub var fonts: [meta.fields(@TypeOf(font_filenames)).len * meta.tags(FontSize).len]rl.Font = undefined;
+const standard_codepoints = standard: {
+    var points: [95]i32 = undefined;
+    for (&points, 0..) |*point, i| point.* = i + 32;
+    break :standard points;
+};
+
+const special_codepoints = special: {
+    @setEvalBranchQuota(6250);
+    var points = std.BoundedArray(i32, 1024){};
+    // Latin supplements
+    for (0x00A1..0x0180) |point| points.append(point) catch @compileError("Not enough space");
+    // Extended Latin
+    for (0x1EA0..0x1EFA) |point| points.append(point) catch @compileError("Not enough space");
+    // Greek
+    for (0x038E..0x03A2) |point| points.append(point) catch @compileError("Not enough space");
+    for (0x03A3..0x03CE) |point| points.append(point) catch @compileError("Not enough space");
+    // Cyrillic
+    for (0x0400..0x0514) |point| points.append(point) catch @compileError("Not enough space");
+    const misc =
+        "ƒơƯưƠǺǻǼǽǾǿȘșȚțȷəʼˆˇˉ˘˙˚˛˜˝ǰ́̃̉̏΄΅Ά·ΈΉΊΌ˳ϑϒϖḀḁ" ++
+        "ḾḿẀẁẂẃẄẅ–—―‗‘’‚‛“”„†‡•‰′″‥…⁄‹›‼Ὅⁿ€₫₧₤₣℅ℓ™№Ω℮" ++
+        "⅛⅜⅝⅞∏∞∫√∆∕∂−∑≈≥≤≠⁴◊�￼";
+    var chars_iter = unicode.Utf8View.initComptime(misc).iterator();
+    while (chars_iter.nextCodepoint()) |point| points.append(point) catch @compileError("Not enough space");
+    break :special points.slice()[0..].*;
+};
+
+var all_codepoints = standard_codepoints ++ special_codepoints;
+
+pub var fonts: [meta.fields(@TypeOf(font_filenames)).len * meta.tags(FontSize).len + 1]rl.Font = undefined;
 
 const image_filenames = .{
     .x = "x.png",
@@ -146,13 +176,14 @@ pub fn init() !void {
 
     inline for (comptime meta.fieldNames(@TypeOf(font_filenames)), 0..) |font_name, i| {
         for (meta.tags(FontSize), 0..) |size, j| {
+            const path = resources_path ++ @field(font_filenames, font_name);
             const font = try rl.Font.fromMemory(
-                ".ttf",
-                @embedFile(resources_path ++ @field(font_filenames, font_name)),
+                @ptrCast(fs.path.extension(path)),
+                @embedFile(path),
                 @intFromEnum(size),
-                null,
+                &all_codepoints,
             );
-            rl.setTextureFilter(font.texture, .anisotropic_8x);
+            rl.setTextureFilter(font.texture, .bilinear);
             fonts[i * meta.tags(FontSize).len + j] = font;
         }
     }

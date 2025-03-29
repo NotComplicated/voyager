@@ -1,4 +1,5 @@
 const std = @import("std");
+const unicode = std.unicode;
 const ascii = std.ascii;
 const math = std.math;
 const meta = std.meta;
@@ -120,7 +121,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             self.timer +|= input.delta_ms;
             self.history.slice()[self.history.len - 1].cursor = self.cursor;
             const maybe_message = try self.handleInput(input, &maybe_updated);
-            if (self.value().len > max_len) {
+            if (self.utf8Len() > max_len) {
                 self.content.items.len = max_len;
                 self.fixCursor();
             }
@@ -167,7 +168,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                             if (self.mouseAt(input.mouse_pos)) |at| {
                                 self.cursor = .{
                                     .select = if (at == index and self.timer < main.double_click_delay)
-                                        .{ .from = 0, .to = self.value().len }
+                                        .{ .from = 0, .to = self.utf8Len() }
                                     else
                                         .{ .from = if (input.shift) index else at, .to = at },
                                 };
@@ -183,7 +184,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                             if (input.ctrl) {
                                 switch (char) {
                                     'v' => try self.paste(index, 0),
-                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
+                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.utf8Len() } },
                                     'z' => {
                                         maybe_updated.* = false;
                                         try self.undo();
@@ -195,15 +196,18 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                     else => {},
                                 }
                             } else {
-                                try self.content.insert(main.alloc, index, char);
+                                const byte_index = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                                    var chars_iter = chars.iterator();
+                                    break :utf8 chars_iter.peek(index).len;
+                                } else |_| index;
+                                try self.content.insert(main.alloc, byte_index, char);
                                 self.cursor.at += 1;
                             }
                         },
 
                         .f => |_| {},
 
-                        .delete => if (index < self.value().len)
-                            if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
+                        .delete => if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
 
                         .backspace => if (input.ctrl)
                             self.removeCursorToPrevSep()
@@ -220,7 +224,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                 .selecting => |current| {
                                     const start, const end = self.tab_complete.completions.items[current];
                                     try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
-                                    self.cursor = .{ .at = self.value().len };
+                                    self.cursor = .{ .at = self.utf8Len() };
                                     return null;
                                 },
                             };
@@ -235,7 +239,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                 .selecting => |current| {
                                     const start, const end = self.tab_complete.completions.items[current];
                                     try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
-                                    self.cursor = .{ .at = self.value().len };
+                                    self.cursor = .{ .at = self.utf8Len() };
                                     return null;
                                 },
                             };
@@ -248,9 +252,9 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                             .{ .at = 0 },
 
                         .down, .end => self.cursor = if (input.shift)
-                            .{ .select = .{ .from = index, .to = self.value().len } }
+                            .{ .select = .{ .from = index, .to = self.utf8Len() } }
                         else
-                            .{ .at = self.value().len },
+                            .{ .at = self.utf8Len() },
 
                         .left => {
                             const dest = if (input.ctrl)
@@ -269,14 +273,14 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                 .selecting => |current| {
                                     const start, const end = self.tab_complete.completions.items[current];
                                     try self.content.appendSlice(main.alloc, self.tab_complete.names.items[start..end]);
-                                    self.cursor = .{ .at = self.value().len };
+                                    self.cursor = .{ .at = self.utf8Len() };
                                     return null;
                                 },
                             };
                             const dest = if (input.ctrl)
                                 toNextSep(self.value(), index)
                             else
-                                index + @intFromBool(index < self.value().len);
+                                index + @intFromBool(index < self.utf8Len());
                             self.cursor = if (input.shift)
                                 .{ .select = .{ .from = index, .to = dest } }
                             else
@@ -289,6 +293,16 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                         .paste => try self.paste(index, 0),
                         .undo => try self.undo(),
                         .redo => try self.redo(),
+                        .special_char => |char| {
+                            var encoded: [4]u8 = undefined;
+                            const len = unicode.utf8Encode(char, &encoded) catch return null;
+                            const byte_index = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                                var chars_iter = chars.iterator();
+                                break :utf8 chars_iter.peek(index).len;
+                            } else |_| index;
+                            try self.content.insertSlice(main.alloc, byte_index, encoded[0..len]);
+                            self.cursor.at += 1;
+                        },
                     },
                 },
 
@@ -324,7 +338,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                         self.removeCursor();
                                     },
                                     'v' => try self.paste(selection.left(), selection.len()),
-                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.value().len } },
+                                    'a' => self.cursor = .{ .select = .{ .from = 0, .to = self.utf8Len() } },
                                     'z' => {
                                         maybe_updated.* = false;
                                         try self.undo();
@@ -336,12 +350,12 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                     else => {},
                                 }
                             } else {
-                                try self.content.replaceRange(
-                                    main.alloc,
-                                    selection.left(),
-                                    selection.len(),
-                                    &.{char},
-                                );
+                                const byte_index, const byte_len = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                                    var chars_iter = chars.iterator();
+                                    for (0..selection.left()) |_| _ = chars_iter.nextCodepoint();
+                                    break :utf8 .{ chars_iter.i, chars_iter.peek(selection.len()).len };
+                                } else |_| .{ selection.left(), selection.len() };
+                                try self.content.replaceRange(main.alloc, byte_index, byte_len, &.{char});
                                 self.cursor = .{ .at = selection.left() + 1 };
                             }
                         },
@@ -364,9 +378,9 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                             .{ .at = 0 },
 
                         .down, .end => self.cursor = if (input.shift)
-                            .{ .select = .{ .from = selection.left(), .to = self.value().len } }
+                            .{ .select = .{ .from = selection.left(), .to = self.utf8Len() } }
                         else
-                            .{ .at = self.value().len },
+                            .{ .at = self.utf8Len() },
 
                         .left => if (input.shift) {
                             const dest = if (input.ctrl)
@@ -386,7 +400,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                             const dest = if (input.ctrl)
                                 toNextSep(self.value(), selection.to)
                             else
-                                selection.to + @intFromBool(selection.to < self.value().len);
+                                selection.to + @intFromBool(selection.to < self.utf8Len());
                             if (dest == selection.from) {
                                 self.cursor = .{ .at = dest };
                             } else {
@@ -402,6 +416,17 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                         .paste => try self.paste(selection.left(), selection.len()),
                         .undo => try self.undo(),
                         .redo => try self.redo(),
+                        .special_char => |char| {
+                            var encoded: [4]u8 = undefined;
+                            const len = unicode.utf8Encode(char, &encoded) catch return null;
+                            const byte_index, const byte_len = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                                var chars_iter = chars.iterator();
+                                for (0..selection.left()) |_| _ = chars_iter.nextCodepoint();
+                                break :utf8 .{ chars_iter.i, chars_iter.peek(selection.len()).len };
+                            } else |_| .{ selection.left(), selection.len() };
+                            try self.content.replaceRange(main.alloc, byte_index, byte_len, encoded[0..len]);
+                            self.cursor = .{ .at = selection.left() + 1 };
+                        },
                     },
                 },
             }
@@ -436,13 +461,13 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                     ),
 
                     .at => |index| {
-                        draw.textEx(
-                            .roboto_mono,
-                            .md,
-                            self.content.items[0..index],
-                            themes.current.text,
-                            null,
-                        );
+                        const before, const after = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                            var chars_iter = chars.iterator();
+                            const before = chars_iter.peek(index);
+                            break :utf8 .{ before, self.value()[before.len..] };
+                        } else |_| .{ self.value()[0..index], self.value()[index..] };
+
+                        draw.textEx(.roboto_mono, .md, before, themes.current.text, null);
                         if ((self.timer / ibeam_blink_interval) % 2 == 0) {
                             clay.ui()(.{
                                 .floating = .{
@@ -455,50 +480,32 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                     .attach_to = .parent,
                                 },
                             })({
-                                draw.textEx(
-                                    .roboto_mono,
-                                    .lg,
-                                    "|",
-                                    themes.current.bright_text,
-                                    null,
-                                );
+                                draw.textEx(.roboto_mono, .xl, "|", themes.current.bright_text, null);
                             });
                         }
-                        draw.textEx(
-                            .roboto_mono,
-                            .md,
-                            self.content.items[index..],
-                            themes.current.text,
-                            null,
-                        );
+                        draw.textEx(.roboto_mono, .md, after, themes.current.text, null);
                     },
 
                     .select => |selection| {
-                        draw.textEx(
-                            .roboto_mono,
-                            .md,
-                            self.content.items[0..selection.left()],
-                            themes.current.text,
-                            null,
-                        );
+                        const before, const inside, const after = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                            var chars_iter = chars.iterator();
+                            const before = chars_iter.peek(selection.left());
+                            chars_iter = unicode.Utf8View.initUnchecked(self.value()[before.len..]).iterator();
+                            const inside = chars_iter.peek(selection.len());
+                            break :utf8 .{ before, inside, self.value()[before.len + inside.len ..] };
+                        } else |_| .{
+                            self.value()[selection.left()..],
+                            self.value()[selection.left()..selection.right()],
+                            self.value()[selection.right()..],
+                        };
+
+                        draw.textEx(.roboto_mono, .md, before, themes.current.text, null);
                         clay.ui()(.{
                             .bg_color = themes.current.highlight,
                         })({
-                            draw.textEx(
-                                .roboto_mono,
-                                .md,
-                                self.content.items[selection.left()..selection.right()],
-                                themes.current.base,
-                                null,
-                            );
+                            draw.textEx(.roboto_mono, .md, inside, themes.current.base, null);
                         });
-                        draw.textEx(
-                            .roboto_mono,
-                            .md,
-                            self.content.items[selection.right()..],
-                            themes.current.text,
-                            null,
-                        );
+                        draw.textEx(.roboto_mono, .md, after, themes.current.text, null);
                     },
                 }
 
@@ -531,7 +538,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         }
 
         pub fn focus(self: *Self) void {
-            self.cursor = .{ .at = self.value().len };
+            self.cursor = .{ .at = self.utf8Len() };
             self.timer = 0;
         }
 
@@ -554,7 +561,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             if (kind != .path) @compileError("appendPath only works on paths");
             try self.content.append(main.alloc, fs.path.sep);
             try self.content.appendSlice(main.alloc, entry_name);
-            if (self.value().len > max_len) {
+            if (self.utf8Len() > max_len) {
                 self.content.items.len = max_len;
                 self.fixCursor();
             }
@@ -587,6 +594,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             }
         }
 
+        fn utf8Len(self: Self) usize {
+            return unicode.utf8CountCodepoints(self.value()) catch self.value().len;
+        }
+
         fn updateHistory(self: *Self) Model.Error!void {
             if (!mem.eql(u8, self.value(), self.history.get(self.history.len - 1).content.items)) {
                 const next_hist = self.history.addOne() catch rotate: {
@@ -602,10 +613,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         fn fixCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |*index| index.* = @min(index.*, self.value().len),
+                .at => |*index| index.* = @min(index.*, self.utf8Len()),
                 .select => |*selection| {
-                    selection.from = @min(selection.from, self.value().len);
-                    selection.to = @min(selection.to, self.value().len);
+                    selection.from = @min(selection.from, self.utf8Len());
+                    selection.to = @min(selection.to, self.utf8Len());
                     if (selection.from == selection.to) self.cursor = .{ .at = selection.from };
                 },
             }
@@ -614,8 +625,23 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         fn removeCursor(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| _ = self.content.orderedRemove(index),
-                .select => |selection| {
+                .at => |index| if (unicode.Utf8View.init(self.value())) |chars| {
+                    var chars_iter = chars.iterator();
+                    for (0..index) |_| _ = chars_iter.nextCodepoint();
+                    const start = chars_iter.i;
+                    const replace = chars_iter.nextCodepointSlice() orelse return;
+                    self.content.replaceRangeAssumeCapacity(start, replace.len, "");
+                } else |_| if (index < self.value().len) {
+                    _ = self.content.orderedRemove(index);
+                },
+                .select => |selection| if (unicode.Utf8View.init(self.value())) |chars| {
+                    var chars_iter = chars.iterator();
+                    for (0..selection.left()) |_| _ = chars_iter.nextCodepoint();
+                    const start = chars_iter.i;
+                    for (0..selection.len()) |_| _ = chars_iter.nextCodepoint();
+                    self.content.replaceRangeAssumeCapacity(start, chars_iter.i - start, "");
+                    self.cursor = .{ .at = selection.left() };
+                } else |_| {
                     self.content.replaceRangeAssumeCapacity(selection.left(), selection.len(), "");
                     self.cursor = .{ .at = selection.left() };
                 },
@@ -625,11 +651,17 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         fn removeCursorToNextSep(self: *Self) void {
             switch (self.cursor) {
                 .none => {},
-                .at => |index| self.content.replaceRangeAssumeCapacity(
-                    index,
-                    toNextSep(self.value(), index) - index,
-                    "",
-                ),
+                .at => |index| {
+                    const sep_index = toNextSep(self.value(), index);
+                    const byte_index, const byte_len = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                        var chars_iter = chars.iterator();
+                        for (0..index) |_| _ = chars_iter.nextCodepoint();
+                        const byte_index = chars_iter.i;
+                        for (index..sep_index) |_| _ = chars_iter.nextCodepoint();
+                        break :utf8 .{ byte_index, chars_iter.i - byte_index };
+                    } else |_| .{ index, sep_index - index };
+                    self.content.replaceRangeAssumeCapacity(byte_index, byte_len, "");
+                },
                 .select => self.removeCursor(),
             }
         }
@@ -638,18 +670,32 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             switch (self.cursor) {
                 .none => {},
                 .at => |index| {
-                    const prev = toPrevSep(self.value(), index);
-                    self.content.replaceRangeAssumeCapacity(prev, index - prev, "");
-                    self.cursor.at = prev;
+                    const sep_index = toPrevSep(self.value(), index);
+                    const byte_index, const byte_len = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                        var chars_iter = chars.iterator();
+                        for (0..sep_index) |_| _ = chars_iter.nextCodepoint();
+                        const byte_index = chars_iter.i;
+                        for (sep_index..index) |_| _ = chars_iter.nextCodepoint();
+                        break :utf8 .{ byte_index, chars_iter.i - byte_index };
+                    } else |_| .{ sep_index, index - sep_index };
+                    self.content.replaceRangeAssumeCapacity(byte_index, byte_len, "");
+                    self.cursor.at = sep_index;
                 },
                 .select => self.removeCursor(),
             }
         }
 
         fn copy(self: *Self, selection: Selection) Model.Error!void {
-            try self.content.insert(main.alloc, selection.right(), 0);
-            defer _ = self.content.orderedRemove(selection.right());
-            rl.setClipboardText(@ptrCast(self.value()[selection.left()..]));
+            const left, const right = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                var chars_iter = chars.iterator();
+                for (0..selection.left()) |_| _ = chars_iter.nextCodepoint();
+                const left = chars_iter.i;
+                for (0..selection.len()) |_| _ = chars_iter.nextCodepoint();
+                break :utf8 .{ left, chars_iter.i };
+            } else |_| .{ selection.left(), selection.right() };
+            try self.content.insert(main.alloc, right, 0);
+            defer _ = self.content.orderedRemove(right);
+            rl.setClipboardText(@ptrCast(self.value()[left..right]));
         }
 
         fn paste(self: *Self, index: usize, len: usize) Model.Error!void {
@@ -657,11 +703,16 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             if (clipboard.len > max_paste_len) {
                 alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
             } else if (clipboard.len > 0) {
-                try self.content.replaceRange(main.alloc, index, len, clipboard);
-                for (self.content.items[index..][0..clipboard.len]) |*char| {
+                const byte_index, const byte_len = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
+                    var chars_iter = chars.iterator();
+                    for (0..index) |_| _ = chars_iter.nextCodepoint();
+                    break :utf8 .{ chars_iter.i, chars_iter.peek(len).len };
+                } else |_| .{ index, len };
+                try self.content.replaceRange(main.alloc, byte_index, byte_len, clipboard);
+                for (self.content.items[byte_index..][0..clipboard.len]) |*char| {
                     if (ascii.isControl(char.*)) char.* = ' ';
                 }
-                self.cursor = .{ .at = index + clipboard.len };
+                self.cursor = .{ .at = index + (unicode.utf8CountCodepoints(clipboard) catch clipboard.len) };
             }
         }
 
@@ -673,7 +724,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                 try self.content.appendSlice(main.alloc, prev.content.items);
                 self.cursor = prev.cursor;
                 if (self.cursor == .none) {
-                    self.cursor = .{ .at = self.value().len };
+                    self.cursor = .{ .at = self.utf8Len() };
                 }
             }
         }
@@ -684,7 +735,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             try self.content.appendSlice(main.alloc, next.content.items);
             self.cursor = next.cursor;
             if (self.cursor == .none) {
-                self.cursor = .{ .at = self.value().len };
+                self.cursor = .{ .at = self.utf8Len() };
             }
         }
 
@@ -747,7 +798,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                     );
 
                     self.tab_complete.state = .{ .just_updated = 0 };
-                    self.cursor = .{ .at = self.value().len };
+                    self.cursor = .{ .at = self.utf8Len() };
                 },
             }
         }
@@ -756,7 +807,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             const bounds = main.getBounds(id) orelse return null;
             if (bounds.x <= mouse_pos.x and mouse_pos.x <= bounds.x + bounds.width) {
                 const chars: usize = @intFromFloat((mouse_pos.x - bounds.x - (char_px_width / 2)) / char_px_width);
-                return @min(chars, self.value().len);
+                return @min(chars, self.utf8Len());
             }
             return null;
         }
@@ -769,7 +820,21 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         }
 
         fn toNextSep(string: []const u8, index: usize) usize {
-            if (mem.indexOfAnyPos(u8, string, index, seps())) |next_sep| {
+            if (unicode.Utf8View.init(string)) |chars| {
+                var chars_iter = chars.iterator();
+                for (0..index) |_| _ = chars_iter.nextCodepoint();
+                var i: usize = 0;
+                find_sep: while (chars_iter.nextCodepoint()) |codepoint| : (i += 1) {
+                    for (seps()) |sep| if (sep == codepoint) break :find_sep;
+                }
+                if (i == 0 and chars_iter.i < string.len) {
+                    i = 1;
+                    find_sep: while (chars_iter.nextCodepoint()) |codepoint| : (i += 1) {
+                        for (seps()) |sep| if (sep == codepoint) break :find_sep;
+                    }
+                }
+                return index + i;
+            } else |_| if (mem.indexOfAnyPos(u8, string, index, seps())) |next_sep| {
                 return if (index == next_sep)
                     mem.indexOfAnyPos(u8, string, index + 1, seps()) orelse string.len
                 else
@@ -780,7 +845,18 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         }
 
         fn toPrevSep(string: []const u8, index: usize) usize {
-            if (mem.lastIndexOfAny(u8, string[0..index], seps())) |prev_sep| {
+            if (unicode.Utf8View.init(string)) |chars| {
+                var chars_iter = chars.iterator();
+                var prev_index: usize = 0;
+                var i: usize = 0;
+                while (chars_iter.nextCodepoint()) |codepoint| : (i += 1) {
+                    if (i == index) break;
+                    for (seps()) |sep| if (sep == codepoint) {
+                        prev_index = i;
+                    };
+                }
+                return prev_index;
+            } else |_| if (mem.lastIndexOfAny(u8, string[0..index], seps())) |prev_sep| {
                 return if (index == prev_sep + 1)
                     mem.lastIndexOfAny(u8, string[0 .. index - 1], seps()) orelse 0
                 else

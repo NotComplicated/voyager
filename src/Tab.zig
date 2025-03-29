@@ -138,6 +138,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 return null;
             },
             .redo => {},
+            .special_char => {},
         },
         .key => |key| switch (key) {
             .char => |c| if (input.ctrl) switch (c) {

@@ -53,7 +53,21 @@ pub const Shortcuts = struct {
                 .layout_direction = .top_to_bottom,
                 .child_gap = 12,
             },
+            .scroll = .{ .horizontal = true },
         })({
+            clay.ui()(.{
+                .id = clay.id("NewShortcut"),
+                .layout = .{
+                    .padding = .all(8),
+                    .sizing = .{ .width = .grow(.{}) },
+                },
+                .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
+                .corner_radius = draw.rounded,
+            })({
+                draw.pointer();
+                draw.textEx(.roboto, .lg, "New Shortcut", themes.current.text, shortcuts.width);
+            });
+
             var shortcuts_iter = shortcuts.list.iterator();
             var i: u32 = 0;
             while (shortcuts_iter.next()) |entry| : (i += 1) {

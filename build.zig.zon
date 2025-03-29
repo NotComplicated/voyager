@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .clay_zig = .{
-            .url = "git+https://codeberg.org/NotComplicated/clay-zig.git#94fd7fd783352d58ec1c79379cf6562cf78fd4fe",
-            .hash = "clay_zig-0.2.0-XmmeAFu2AAD7FJgMgp91YhR_l-GStWoyvm8RIj5w5vL7",
+            .url = "git+https://codeberg.org/NotComplicated/clay-zig.git#38f905c2ef16e2bb4de03e7c05969aa7b966792f",
+            .hash = "clay_zig-0.2.0-XmmeADC5AADBTI1350Ju1Qq5SBPSe99DtfL1DG-3r-uN",
         },
         .datetime = .{
             .url = "git+https://github.com/frmdstryr/zig-datetime#52d4fbe43a758589b74411ffec8ebcb1f12e2d13",

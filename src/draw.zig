@@ -52,6 +52,7 @@ pub fn textEx(
                     .font_id = @intCast(i * enums.values(resources.FontSize).len + j),
                     .font_size = @intFromEnum(size),
                     .wrap_mode = .none,
+                    .hash_string_contents = true,
                 };
 
                 if (width) |width_inner| {
