@@ -87,6 +87,12 @@ pub fn deinit(tab: *Tab) void {
 }
 
 pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
+    if (rl.isFileDropped()) {
+        const files = rl.loadDroppedFiles();
+        defer rl.unloadDroppedFiles(files);
+        if (main.is_debug) for (files.paths[0..files.count]) |path| log.debug("Dropped: {s}", .{path});
+    }
+
     if (main.is_debug and input.clicked(.middle)) {
         log.debug("{}", .{tab});
     } else if (!tab.cwd.isActive() and !tab.entries.isActive()) {
@@ -113,7 +119,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 Model.Error.OpenDirFailure => {
                     const path_z = try main.alloc.dupeZ(u8, path);
                     defer main.alloc.free(path_z);
-                    try openFileAt(path_z);
+                    try openFileAt(path_z, null);
                 },
                 else => return err,
             },
@@ -353,6 +359,16 @@ pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
     };
 }
 
+pub fn newWindow(tab: *Tab) Model.Error!void {
+    const exe = fs.selfExePathAlloc(main.alloc) catch return Model.Error.ExeNotFound;
+    defer main.alloc.free(exe);
+    const exe_z = try main.alloc.dupeZ(u8, exe);
+    defer main.alloc.free(exe_z);
+    try tab.cached_cwd.append(main.alloc, 0);
+    defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - 1);
+    try openFileAt(exe_z, @ptrCast(tab.cached_cwd.items));
+}
+
 fn openParentDir(tab: *Tab) Model.Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.popPath();
@@ -362,21 +378,13 @@ fn openParentDir(tab: *Tab) Model.Error!void {
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {
     const path = try fs.path.joinZ(main.alloc, &.{ tab.cached_cwd.items, name });
     defer main.alloc.free(path);
-    try openFileAt(path);
-}
-
-fn openFileAt(path: [:0]const u8) Model.Error!void {
-    if (!main.is_windows) return Model.Error.OsNotSupported;
-    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, null, null, 0));
-    if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
+    try openFileAt(path, null);
 }
 
 fn openVscode(tab: Tab) Model.Error!void {
-    if (!main.is_windows) return Model.Error.OsNotSupported;
     const path = try main.alloc.dupeZ(u8, tab.cwd.value());
     defer main.alloc.free(path);
-    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, "code", path, null, 0));
-    if (status <= 32) return alert.updateFmt("Failed to open directory.", .{});
+    try openFileAt("code", path);
 }
 
 fn undoDelete(tab: *Tab) Model.Error!void {
@@ -392,4 +400,10 @@ fn undoDelete(tab: *Tab) Model.Error!void {
         },
     }
     try tab.reloadEntries();
+}
+
+fn openFileAt(path: [:0]const u8, args: ?[*:0]const u8) Model.Error!void {
+    if (!main.is_windows) return Model.Error.OsNotSupported;
+    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, args, null, 0));
+    if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
 }

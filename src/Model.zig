@@ -1,4 +1,5 @@
 const std = @import("std");
+const process = std.process;
 const math = std.math;
 const mem = std.mem;
 const fs = std.fs;
@@ -6,6 +7,7 @@ const fs = std.fs;
 const main = @import("main.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
+const windows = @import("windows.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
 const Entries = @import("Entries.zig");
@@ -15,7 +17,7 @@ const rl = @import("raylib");
 
 tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
-dragging: ?struct { x_pos: f32, tab_offset: f32 },
+dragging: ?struct { x_pos: f32, tab_offset: f32, dimming: i8 },
 
 const Model = @This();
 
@@ -23,6 +25,7 @@ pub const Error = error{
     GracefulShutdown,
     OutOfMemory,
     OsNotSupported,
+    ExeNotFound,
     OutOfBounds,
     OpenDirFailure,
     DirAccessDenied,
@@ -50,7 +53,7 @@ fn getTabIds(key: []const u8) [max_tabs]clay.Id {
 const tab_ids = getTabIds("Tab");
 const close_tab_ids = getTabIds("CloseTab");
 
-pub fn init() Error!Model {
+pub fn init(args: *process.ArgIterator) Error!Model {
     var model = Model{
         .tabs = .empty,
         .curr_tab = 0,
@@ -58,7 +61,7 @@ pub fn init() Error!Model {
     };
     errdefer model.tabs.deinit(main.alloc);
 
-    const path = fs.realpathAlloc(main.alloc, ".") catch return Error.OutOfMemory;
+    const path = fs.realpathAlloc(main.alloc, args.next() orelse ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
 
     try model.tabs.append(main.alloc, try .init(path));
@@ -83,7 +86,7 @@ pub fn update(model: *Model, input: Input) Error!void {
             if (input.clicked(.left)) {
                 model.curr_tab = tab_index;
                 const offset = input.offset(tab_ids[index]) orelse return;
-                model.dragging = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x };
+                model.dragging = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x, .dimming = 0 };
                 return;
             }
             if (input.clicked(.middle)) {
@@ -97,7 +100,7 @@ pub fn update(model: *Model, input: Input) Error!void {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
             .pressed => {},
             .down => if (model.dragging) |*dragging| {
-                dragging.x_pos = input.mouse_pos.x;
+                if (dragging.dimming == 0 or dragging.dimming == 100) dragging.x_pos = input.mouse_pos.x;
 
                 const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
                 const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
@@ -106,8 +109,20 @@ pub fn update(model: *Model, input: Input) Error!void {
                     mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
                     model.curr_tab = @intCast(pos);
                 }
+
+                if (model.tabs.items.len > 1) {
+                    const onscreen = -30 < input.mouse_pos.x and
+                        input.mouse_pos.x <= @as(f32, @floatFromInt(rl.getScreenWidth())) + 30 and
+                        -50 < input.mouse_pos.y and
+                        input.mouse_pos.y <= @as(f32, @floatFromInt(rl.getScreenHeight())) + 30;
+                    const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
+                    dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
+                }
             },
-            .released => model.dragging = null,
+            .released => if (model.dragging) |dragging| {
+                if (dragging.dimming == 100) try model.popOutTab();
+                model.dragging = null;
+            },
         },
 
         .key => |key| switch (key) {
@@ -184,6 +199,7 @@ pub fn render(model: Model) void {
                 .child_gap = 0,
             },
             .bg_color = themes.current.bg,
+            .scroll = .{ .vertical = true },
         })({
             const tab_width = @min(width / model.tabs.items.len, max_tab_width);
 
@@ -192,14 +208,34 @@ pub fn render(model: Model) void {
                 const hovered = !selected and clay.pointerOver(tab_ids[index]);
 
                 const floating = if (selected) if (model.dragging) |dragging| floating: {
+                    clay.ui()(.{
+                        .id = clay.id("Dimming"),
+                        .layout = .{
+                            .sizing = .grow(.{}),
+                        },
+                        .floating = .{
+                            .z_index = 2,
+                            .attach_to = .root,
+                        },
+                        .bg_color = .rgba(0, 0, 0, @intCast(dragging.dimming)),
+                    })({});
+
                     // Placeholder when dragging a tab
-                    clay.ui()(.{ .layout = .{ .sizing = .{ .width = .fixed(@floatFromInt(tab_width)) } } })({});
+                    if (dragging.dimming == 0) {
+                        clay.ui()(.{
+                            .layout = .{
+                                .sizing = .{ .width = .fixed(@floatFromInt(tab_width)) },
+                            },
+                        })({});
+                    }
+
                     const max: f32 = @floatFromInt(width - tab_width);
                     break :floating clay.Config.Floating{
                         .offset = .{
                             .x = math.clamp(dragging.x_pos - dragging.tab_offset, tabs_padding, max),
+                            .y = @as(f32, @floatFromInt(dragging.dimming)) / 2,
                         },
-                        .z_index = 2,
+                        .z_index = 1,
                         .parent_id = tabs_id.id,
                         .attach_to = .parent,
                     };
@@ -300,7 +336,7 @@ pub fn render(model: Model) void {
                 });
             }
 
-            if (model.tabs.items.len < max_tabs) {
+            if (model.tabs.items.len < max_tabs and model.dragging == null) {
                 const x_offset = @min(width - 8, model.tabs.items.len * tab_width + 4);
 
                 clay.ui()(.{
@@ -346,4 +382,9 @@ fn closeTab(model: *Model, index: TabIndex) Error!void {
     model.tabs.items[index].deinit();
     _ = model.tabs.orderedRemove(index);
     if (model.curr_tab >= index) model.curr_tab -|= 1;
+}
+
+fn popOutTab(model: *Model) Error!void {
+    try model.currTab().newWindow();
+    try model.closeTab(model.curr_tab);
 }

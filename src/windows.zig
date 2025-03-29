@@ -6,7 +6,7 @@ const win = std.os.windows;
 const clay = @import("clay");
 const rl = @import("raylib");
 
-pub const Color = win.DWORD;
+const Color = win.DWORD;
 
 pub const Event = enum {
     copy,
@@ -79,7 +79,7 @@ const SID_NAME_USE = enum(win.INT) {
 };
 
 pub const move_flags = win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH;
-pub const dwma_caption_color = 35;
+const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
 const copy_char = 'C' - 0x40;
@@ -118,6 +118,15 @@ pub fn getFileTime() win.FILETIME {
 
 pub fn getLastError() []const u8 {
     return @tagName(win.kernel32.GetLastError());
+}
+
+pub fn setTitleColor(color: clay.Color) void {
+    _ = DwmSetWindowAttribute(
+        getHandle(),
+        dwma_caption_color,
+        &colorFromClay(color),
+        @sizeOf(Color),
+    );
 }
 
 pub fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
@@ -172,8 +181,6 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
 
 pub extern fn MoveFileExA(old: win.LPCSTR, new: win.LPCSTR, flags: win.DWORD) callconv(.winapi) win.BOOL;
 
-pub extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) callconv(.winapi) win.HRESULT;
-
 pub extern fn ShellExecuteA(
     hwnd: ?win.HWND,
     lpOperation: ?win.LPCSTR,
@@ -184,6 +191,8 @@ pub extern fn ShellExecuteA(
 ) callconv(.winapi) win.HINSTANCE;
 
 pub extern fn GetTimeZoneInformation(lpTimeZoneInformation: [*c]TIME_ZONE_INFORMATION) callconv(.winapi) win.DWORD;
+
+extern fn DwmSetWindowAttribute(window: win.HWND, attr: win.DWORD, pvattr: win.LPCVOID, cbattr: win.DWORD) callconv(.winapi) win.HRESULT;
 
 extern fn GetUserNameExA(name_format: NameFormat, name_buf: win.LPSTR, size: *win.ULONG) callconv(.winapi) win.BOOLEAN;
 extern fn LookupAccountNameA(

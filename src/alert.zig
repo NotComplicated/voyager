@@ -27,6 +27,7 @@ pub fn update(err: anyerror) void {
     var writer = alert.msg.writer(main.alloc);
     switch (err) {
         Model.Error.OsNotSupported => writer.writeAll("Action not supported on this system.") catch process.abort(),
+        Model.Error.ExeNotFound => writer.writeAll("Failed to open new window.") catch process.abort(),
         Model.Error.AlreadyExists => writer.writeAll("A file with this name already exists.") catch process.abort(),
         Model.Error.DeleteDirFailure => writer.writeAll("Failed to delete folder.") catch process.abort(),
         Model.Error.DeleteFileFailure => writer.writeAll("Failed to delete file.") catch process.abort(),

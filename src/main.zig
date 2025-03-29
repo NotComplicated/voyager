@@ -1,4 +1,5 @@
 const std = @import("std");
+const process = std.process;
 const enums = std.enums;
 const heap = std.heap;
 const math = std.math;
@@ -101,9 +102,12 @@ pub fn getBounds(id: clay.Id) ?clay.BoundingBox {
 }
 
 const GlfwWindow = opaque {};
+const GlfwMonitor = opaque {};
 const GlfwKeyfun = *const fn (*GlfwWindow, c_int, c_int, c_int, c_int) callconv(.c) void;
+
 extern fn glfwGetCurrentContext() *GlfwWindow;
 extern fn glfwSetKeyCallback(window: *GlfwWindow, callback: GlfwKeyfun) GlfwKeyfun;
+
 var prevKeyCallback: GlfwKeyfun = undefined;
 
 // This is the only way I know to remove screenshotting @_@
@@ -116,6 +120,10 @@ fn keyCallback(window: *GlfwWindow, key: c_int, scancode: c_int, action: c_int, 
 
 pub fn main() !void {
     defer _ = if (is_debug) debug_alloc.deinit();
+
+    var args = try process.argsWithAllocator(alloc);
+    defer args.deinit();
+    _ = args.skip();
 
     data_path = try fs.getAppDataDir(alloc, data_dirname);
     defer alloc.free(data_path);
@@ -133,17 +141,11 @@ pub fn main() !void {
     renderer.initialize(width, height, title, rl_config);
     rl.setExitKey(.null);
 
-    const window = glfwGetCurrentContext();
-    prevKeyCallback = glfwSetKeyCallback(window, &keyCallback);
+    prevKeyCallback = glfwSetKeyCallback(glfwGetCurrentContext(), &keyCallback);
 
     if (is_windows) {
         windows.init();
-        _ = windows.DwmSetWindowAttribute(
-            windows.getHandle(),
-            windows.dwma_caption_color,
-            &windows.colorFromClay(themes.current.bg),
-            @sizeOf(windows.Color),
-        );
+        windows.setTitleColor(themes.current.bg);
     }
     defer if (is_windows) windows.deinit();
 
@@ -153,7 +155,7 @@ pub fn main() !void {
     defer alert.deinit();
     defer tooltip.deinit();
 
-    var model = try Model.init();
+    var model = try Model.init(&args);
     defer model.deinit();
 
     while (!rl.windowShouldClose()) frame(&model);
