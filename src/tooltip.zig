@@ -7,6 +7,7 @@ const rl = @import("raylib");
 
 const main = @import("main.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
@@ -69,7 +70,7 @@ pub fn render() void {
                     .child_alignment = .{ .x = .center },
                 },
                 .bg_color = themes.current.pitch_black,
-                .corner_radius = main.rounded,
+                .corner_radius = draw.rounded,
                 .floating = .{
                     .offset = pos,
                     .z_index = 1,
@@ -77,7 +78,7 @@ pub fn render() void {
                     .attach_to = .root,
                 },
             })({
-                main.text(tooltip.msg.items);
+                draw.text(tooltip.msg.items);
             });
         },
     }

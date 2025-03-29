@@ -7,6 +7,7 @@ const fs = std.fs;
 const main = @import("main.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
+const draw = @import("draw.zig");
 const windows = @import("windows.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
@@ -18,7 +19,7 @@ const rl = @import("raylib");
 tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
 tab_drag: ?struct { x_pos: f32, tab_offset: f32, dimming: i8 },
-shortcuts: struct { width: usize, dragging: bool },
+shortcuts: Shortcuts,
 
 const Model = @This();
 
@@ -37,6 +38,43 @@ pub const Error = error{
 };
 
 const TabIndex = u4;
+
+pub const Shortcuts = struct {
+    list: std.BufMap,
+    width: usize,
+    dragging: bool,
+
+    pub fn render(shortcuts: Shortcuts) void {
+        clay.ui()(.{
+            .id = clay.id("Shortcuts"),
+            .layout = .{
+                .padding = .all(16),
+                .sizing = .{ .width = .fixed(@floatFromInt(shortcuts.width)) },
+                .layout_direction = .top_to_bottom,
+                .child_gap = 12,
+            },
+        })({
+            var shortcuts_iter = shortcuts.list.iterator();
+            var i: u32 = 0;
+            while (shortcuts_iter.next()) |entry| : (i += 1) {
+                const name = entry.key_ptr.*;
+
+                clay.ui()(.{
+                    .id = clay.idi("Shortcut", i),
+                    .layout = .{
+                        .padding = .all(8),
+                        .sizing = .{ .width = .grow(.{}) },
+                    },
+                    .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
+                    .corner_radius = draw.rounded,
+                })({
+                    draw.pointer();
+                    draw.textEx(.roboto, .lg, name, themes.current.text, shortcuts.width);
+                });
+            }
+        });
+    }
+};
 
 pub const row_height = 30;
 pub const tabs_height = 32;
@@ -61,7 +99,11 @@ pub fn init(args: *process.ArgIterator) Error!Model {
         .tabs = .empty,
         .curr_tab = 0,
         .tab_drag = null,
-        .shortcuts = .{ .width = shortcuts_width.default, .dragging = false },
+        .shortcuts = .{
+            .list = std.BufMap.init(main.alloc),
+            .width = shortcuts_width.default,
+            .dragging = false,
+        },
     };
     errdefer model.tabs.deinit(main.alloc);
 
@@ -303,14 +345,7 @@ pub fn render(model: Model) void {
                     })({
                         clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
-                        const name = tab.tabName();
-                        const chars = tab_width / 16;
-                        if (name.len > chars) {
-                            main.textEx(.roboto, .sm, name[0..chars -| "...".len], themes.current.dim_text);
-                            main.textEx(.roboto, .sm, "...", themes.current.dim_text);
-                        } else {
-                            main.textEx(.roboto, .sm, name, themes.current.dim_text);
-                        }
+                        draw.textEx(.roboto, .sm, tab.tabName(), themes.current.dim_text, tab_width / 2);
 
                         clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
@@ -330,7 +365,7 @@ pub fn render(model: Model) void {
                                 .source_dimensions = .{ .width = 9, .height = tabs_height },
                             },
                         })({
-                            main.pointer();
+                            draw.pointer();
                         });
                     });
 
@@ -374,12 +409,12 @@ pub fn render(model: Model) void {
                         .attach_to = .parent,
                     },
                 })({
-                    main.pointer();
+                    draw.pointer();
                 });
             }
         });
 
-        model.currTab().render(if (width > shortcuts_width.cutoff) model.shortcuts.width else 0);
+        model.currTab().render(if (width > shortcuts_width.cutoff) model.shortcuts else null);
     });
 }
 

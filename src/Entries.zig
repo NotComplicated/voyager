@@ -17,6 +17,7 @@ const Datetime = @import("datetime").datetime.Datetime;
 const main = @import("main.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
@@ -473,7 +474,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
     const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
     const name_sizing = clay.Config.Layout.Sizing{ .width = .fixed(@floatFromInt(name_chars * char_px_width)) };
     const entry_layout = clay.Config.Layout{
-        .padding = .{ .top = 4, .bottom = 8, .left = 8 },
+        .padding = .{ .top = 4, .bottom = 4, .left = 8 },
         .sizing = .{ .width = .grow(.{}) },
         .child_alignment = .{ .y = .center },
         .child_gap = 4,
@@ -508,10 +509,10 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             .child_gap = 6,
                         },
                         .bg_color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.bg,
-                        .corner_radius = main.rounded,
+                        .corner_radius = draw.rounded,
                     })({
-                        main.pointer();
-                        main.text(title);
+                        draw.pointer();
+                        draw.text(title);
 
                         clay.ui()(.{
                             .id = getColumnId(title, "Sort"),
@@ -558,7 +559,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                 .layout_direction = .top_to_bottom,
             },
             .bg_color = themes.current.base,
-            .corner_radius = main.rounded,
+            .corner_radius = draw.rounded,
             .scroll = .{ .vertical = true },
         })({
             inline for (comptime kinds()) |kind| {
@@ -567,7 +568,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                         .id = clay.id("NewItem"),
                         .layout = entry_layout,
                         .bg_color = themes.current.base,
-                        .corner_radius = main.rounded,
+                        .corner_radius = draw.rounded,
                     })({
                         clay.ui()(.{
                             .layout = .{ .sizing = .fixed(resources.file_icon_size) },
@@ -607,9 +608,9 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             themes.current.hovered
                         else
                             themes.current.base,
-                        .corner_radius = main.rounded,
+                        .corner_radius = draw.rounded,
                     })({
-                        if (clay.pointerOver(entries_id)) main.pointer();
+                        if (clay.pointerOver(entries_id)) draw.pointer();
 
                         const icon_image = switch (kind) {
                             .dir => if (clay.hovered()) &resources.images.folder_open else &resources.images.folder,
@@ -643,10 +644,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 .sizing = name_sizing,
                             },
                         })({
-                            if (entry.name.len > max_name_chars) {
-                                main.text(entry.name[0..max_name_chars -| "...".len]);
-                                main.text("...");
-                            } else main.text(entry.name);
+                            draw.textEx(.roboto, .md, entry.name, themes.current.text, name_chars * char_px_width);
                         });
                         cutoff += name_chars * char_px_width;
 
@@ -662,9 +660,9 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                     const extension = fs.path.extension(entry.name);
                                     if (extension.len > 0 and extension.len <= ext_len) {
                                         if (file_types.getIndex(extension[1..])) |i| {
-                                            main.text(file_types.kvs.keys[i]);
+                                            draw.text(file_types.kvs.keys[i]);
                                         } else {
-                                            main.text(extension[1..]);
+                                            draw.text(extension[1..]);
                                         }
                                     }
                                 }
@@ -680,7 +678,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                     .sizing = size_sizing,
                                 },
                             })({
-                                main.text(switch (kind) {
+                                draw.text(switch (kind) {
                                     .dir => "",
                                     .file => entries.sizes.items[entry.index].slice(),
                                 });
@@ -698,13 +696,13 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             })({
                                 if (entry.created) |created| {
                                     switch (created) {
-                                        .just_now => main.text("Just now"),
+                                        .just_now => draw.text("Just now"),
                                         .past => |timespan| {
-                                            main.text(intToString(timespan.count));
-                                            main.text(timespan.metric.toString(timespan.count != 1));
+                                            draw.text(intToString(timespan.count));
+                                            draw.text(timespan.metric.toString(timespan.count != 1));
                                         },
                                     }
-                                } else main.text("");
+                                } else draw.text("");
                             });
                         }
                         cutoff += timespan_chars * char_px_width;
@@ -718,10 +716,10 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 },
                             })({
                                 switch (entry.modified) {
-                                    .just_now => main.text("Just now"),
+                                    .just_now => draw.text("Just now"),
                                     .past => |timespan| {
-                                        main.text(intToString(timespan.count));
-                                        main.text(timespan.metric.toString(timespan.count != 1));
+                                        draw.text(intToString(timespan.count));
+                                        draw.text(timespan.metric.toString(timespan.count != 1));
                                     },
                                 }
                             });

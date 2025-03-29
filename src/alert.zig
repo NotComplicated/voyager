@@ -8,6 +8,7 @@ const rl = @import("raylib");
 
 const main = @import("main.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const Model = @import("Model.zig");
 
 const error_duration = 1_500;
@@ -88,9 +89,9 @@ pub fn render() void {
                 .pointer_capture_mode = .passthrough,
                 .attach_to = .root,
             },
-            .corner_radius = main.rounded,
+            .corner_radius = draw.rounded,
         })({
-            main.textEx(.roboto, .lg, alert.msg.items, themes.opacity(themes.current.text, alpha));
+            draw.textEx(.roboto, .lg, alert.msg.items, themes.opacity(themes.current.text, alpha), null);
         });
     }
 }

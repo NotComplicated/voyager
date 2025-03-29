@@ -14,6 +14,7 @@ const main = @import("main.zig");
 const ops = @import("ops.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
@@ -50,9 +51,9 @@ fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
         .id = id,
         .layout = .{ .sizing = .fixed(Model.row_height) },
         .bg_color = if (clay.pointerOver(id)) themes.current.hovered else themes.current.base,
-        .corner_radius = main.rounded,
+        .corner_radius = draw.rounded,
     })({
-        main.pointer();
+        draw.pointer();
 
         clay.ui()(.{
             .layout = .{
@@ -247,7 +248,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     return null;
 }
 
-pub fn render(tab: Tab, shortcuts_width: usize) void {
+pub fn render(tab: Tab, maybe_shortcuts: ?Model.Shortcuts) void {
     clay.ui()(.{
         .id = clay.id("TabContent"),
         .layout = .{
@@ -280,41 +281,26 @@ pub fn render(tab: Tab, shortcuts_width: usize) void {
             },
             .bg_color = themes.current.bg,
         })({
-            if (shortcuts_width > 0) {
+            if (maybe_shortcuts) |shortcuts| {
+                shortcuts.render();
+                const shortcuts_width_handle_width = 10;
+
                 clay.ui()(.{
-                    .id = clay.id("ShortcutsContainer"),
+                    .id = Model.shortcuts_width_handle_id,
                     .layout = .{
-                        .padding = .all(10),
-                        .sizing = .{ .width = .fixed(@floatFromInt(shortcuts_width)) },
+                        .sizing = .{
+                            .width = .fixed(shortcuts_width_handle_width),
+                            .height = .grow(.{}),
+                        },
                     },
                 })({
-                    clay.ui()(.{
-                        .id = clay.id("Shortcuts"),
-                        .layout = .{
-                            .layout_direction = .top_to_bottom,
-                            .padding = .all(16),
-                        },
-                    })({
-                        // TODO Shortcuts!
-                    });
+                    draw.left_right_arrows();
                 });
+
+                tab.entries.render(shortcuts.width + shortcuts_width_handle_width);
+            } else {
+                tab.entries.render(0);
             }
-
-            const shortcuts_width_handle_width: usize = if (shortcuts_width > 0) 10 else 0;
-
-            clay.ui()(.{
-                .id = Model.shortcuts_width_handle_id,
-                .layout = .{
-                    .sizing = .{
-                        .width = .fixed(@floatFromInt(shortcuts_width_handle_width)),
-                        .height = .grow(.{}),
-                    },
-                },
-            })({
-                main.left_right_arrows();
-            });
-
-            tab.entries.render(shortcuts_width + shortcuts_width_handle_width);
         });
     });
 }

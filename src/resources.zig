@@ -19,11 +19,11 @@ pub const Font: type = meta.FieldEnum(@TypeOf(font_filenames));
 pub const FontSize = enum(u16) {
     sm = 18,
     md = 20,
-    lg = 30,
-    xl = 40,
+    lg = 22,
+    xl = 24,
 };
 
-var fonts: [meta.fields(@TypeOf(font_filenames)).len * meta.tags(FontSize).len]rl.Font = undefined;
+pub var fonts: [meta.fields(@TypeOf(font_filenames)).len * meta.tags(FontSize).len]rl.Font = undefined;
 
 const image_filenames = .{
     .x = "x.png",

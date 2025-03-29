@@ -1,8 +1,6 @@
 const std = @import("std");
 const process = std.process;
-const enums = std.enums;
 const heap = std.heap;
-const math = std.math;
 const fs = std.fs;
 
 const clay = @import("clay");
@@ -12,9 +10,8 @@ const rl = @import("raylib");
 const ops = @import("ops.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const resources = @import("resources.zig");
-const FontSize = resources.FontSize;
-const Font = resources.Font;
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
@@ -54,45 +51,8 @@ const rl_config = rl.ConfigFlags{
 
 pub const double_click_delay = 300;
 
-pub const rounded = clay.CornerRadius.all(6);
-
 pub fn convertVector(v: rl.Vector2) clay.Vector2 {
     return .{ .x = v.x, .y = v.y };
-}
-
-pub fn text(contents: []const u8) void {
-    textEx(.roboto, .md, contents, themes.current.text);
-}
-
-pub fn textEx(comptime font: Font, comptime font_size: FontSize, contents: []const u8, color: clay.Color) void {
-    inline for (comptime enums.values(Font), 0..) |f, i| {
-        inline for (comptime enums.values(FontSize), 0..) |size, j| {
-            if (f == font and size == font_size) {
-                clay.text(contents, .{
-                    .color = color,
-                    .font_id = @intCast(i * enums.values(FontSize).len + j),
-                    .font_size = @intFromEnum(size),
-                    .wrap_mode = .none,
-                });
-                return;
-            }
-        }
-    }
-    comptime unreachable;
-}
-
-var cursor = rl.MouseCursor.default;
-
-pub fn pointer() void {
-    if (clay.hovered()) cursor = .pointing_hand;
-}
-
-pub fn ibeam() void {
-    if (clay.hovered()) cursor = .ibeam;
-}
-
-pub fn left_right_arrows() void {
-    if (clay.hovered()) cursor = .resize_ew;
 }
 
 var focused = true;
@@ -214,8 +174,8 @@ fn frame(model: *Model) void {
     clay.beginLayout();
     defer renderer.render(clay.endLayout(), resources.getFonts().ptr);
 
-    cursor = .default;
-    defer rl.setMouseCursor(cursor);
+    draw.setCursor(.default);
+    defer rl.setMouseCursor(draw.getCursor());
 
     model.render();
     alert.render();

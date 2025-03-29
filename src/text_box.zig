@@ -13,6 +13,7 @@ const rl = @import("raylib");
 
 const main = @import("main.zig");
 const themes = @import("themes.zig");
+const draw = @import("draw.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
@@ -420,20 +421,27 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                     .child_alignment = .{ .y = .center },
                 },
                 .bg_color = if (self.cursor == .none) themes.current.nav else themes.current.selected,
-                .corner_radius = main.rounded,
+                .corner_radius = draw.rounded,
                 .scroll = .{ .horizontal = true },
             })({
-                main.ibeam();
+                draw.ibeam();
 
                 switch (self.cursor) {
-                    .none => main.textEx(.roboto_mono, .md, self.content.items, themes.current.text),
+                    .none => draw.textEx(
+                        .roboto_mono,
+                        .md,
+                        self.content.items,
+                        themes.current.text,
+                        null,
+                    ),
 
                     .at => |index| {
-                        main.textEx(
+                        draw.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[0..index],
                             themes.current.text,
+                            null,
                         );
                         if ((self.timer / ibeam_blink_interval) % 2 == 0) {
                             clay.ui()(.{
@@ -447,44 +455,49 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                                     .attach_to = .parent,
                                 },
                             })({
-                                main.textEx(
+                                draw.textEx(
                                     .roboto_mono,
                                     .lg,
                                     "|",
                                     themes.current.bright_text,
+                                    null,
                                 );
                             });
                         }
-                        main.textEx(
+                        draw.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[index..],
                             themes.current.text,
+                            null,
                         );
                     },
 
                     .select => |selection| {
-                        main.textEx(
+                        draw.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[0..selection.left()],
                             themes.current.text,
+                            null,
                         );
                         clay.ui()(.{
                             .bg_color = themes.current.highlight,
                         })({
-                            main.textEx(
+                            draw.textEx(
                                 .roboto_mono,
                                 .md,
                                 self.content.items[selection.left()..selection.right()],
                                 themes.current.base,
+                                null,
                             );
                         });
-                        main.textEx(
+                        draw.textEx(
                             .roboto_mono,
                             .md,
                             self.content.items[selection.right()..],
                             themes.current.text,
+                            null,
                         );
                     },
                 }
@@ -493,11 +506,12 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                     .unloaded => {},
                     .selecting, .just_updated => |current| {
                         const start, const end = self.tab_complete.completions.items[current];
-                        main.textEx(
+                        draw.textEx(
                             .roboto_mono,
                             .md,
                             self.tab_complete.names.items[start..end],
                             themes.current.dim_text,
+                            null,
                         );
                     },
                 };
