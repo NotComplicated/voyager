@@ -17,7 +17,8 @@ const rl = @import("raylib");
 
 tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
-dragging: ?struct { x_pos: f32, tab_offset: f32, dimming: i8 },
+tab_drag: ?struct { x_pos: f32, tab_offset: f32, dimming: i8 },
+shortcuts: struct { width: usize, dragging: bool },
 
 const Model = @This();
 
@@ -42,6 +43,8 @@ pub const tabs_height = 32;
 const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = clay.id("NewTab");
+const shortcuts_width = .{ .min = 200, .max = 350, .default = 250, .cutoff = 500 };
+pub const shortcuts_width_handle_id = clay.id("ShortcutsWidthHandle");
 
 fn getTabIds(key: []const u8) [max_tabs]clay.Id {
     @setEvalBranchQuota(1500); // not sure why this needs to be here
@@ -57,7 +60,8 @@ pub fn init(args: *process.ArgIterator) Error!Model {
     var model = Model{
         .tabs = .empty,
         .curr_tab = 0,
-        .dragging = null,
+        .tab_drag = null,
+        .shortcuts = .{ .width = shortcuts_width.default, .dragging = false },
     };
     errdefer model.tabs.deinit(main.alloc);
 
@@ -86,7 +90,7 @@ pub fn update(model: *Model, input: Input) Error!void {
             if (input.clicked(.left)) {
                 model.curr_tab = tab_index;
                 const offset = input.offset(tab_ids[index]) orelse return;
-                model.dragging = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x, .dimming = 0 };
+                model.tab_drag = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x, .dimming = 0 };
                 return;
             }
             if (input.clicked(.middle)) {
@@ -96,10 +100,19 @@ pub fn update(model: *Model, input: Input) Error!void {
         }
     }
 
+    if (clay.pointerOver(shortcuts_width_handle_id)) if (input.action) |action| switch (action) {
+        .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
+            .pressed => model.shortcuts.dragging = true,
+            .down => {}, // handled down below
+            .released => model.shortcuts.dragging = false,
+        },
+        else => {},
+    };
+
     if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
             .pressed => {},
-            .down => if (model.dragging) |*dragging| {
+            .down => if (model.tab_drag) |*dragging| {
                 if (dragging.dimming == 0 or dragging.dimming == 100) dragging.x_pos = input.mouse_pos.x;
 
                 const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
@@ -118,10 +131,16 @@ pub fn update(model: *Model, input: Input) Error!void {
                     const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
                     dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
                 }
+            } else if (model.shortcuts.dragging) {
+                model.shortcuts.width = math.clamp(
+                    math.lossyCast(usize, input.mouse_pos.x),
+                    shortcuts_width.min,
+                    shortcuts_width.max,
+                );
             },
-            .released => if (model.dragging) |dragging| {
+            .released => if (model.tab_drag) |dragging| {
                 if (dragging.dimming == 100) try model.popOutTab();
-                model.dragging = null;
+                model.tab_drag = null;
             },
         },
 
@@ -207,7 +226,7 @@ pub fn render(model: Model) void {
                 const selected = index == model.curr_tab;
                 const hovered = !selected and clay.pointerOver(tab_ids[index]);
 
-                const floating = if (selected) if (model.dragging) |dragging| floating: {
+                const floating = if (selected) if (model.tab_drag) |dragging| floating: {
                     clay.ui()(.{
                         .id = clay.id("Dimming"),
                         .layout = .{
@@ -336,7 +355,7 @@ pub fn render(model: Model) void {
                 });
             }
 
-            if (model.tabs.items.len < max_tabs and model.dragging == null) {
+            if (model.tabs.items.len < max_tabs and model.tab_drag == null) {
                 const x_offset = @min(width - 8, model.tabs.items.len * tab_width + 4);
 
                 clay.ui()(.{
@@ -360,7 +379,7 @@ pub fn render(model: Model) void {
             }
         });
 
-        model.currTab().render();
+        model.currTab().render(if (width > shortcuts_width.cutoff) model.shortcuts.width else 0);
     });
 }
 

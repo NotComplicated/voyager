@@ -29,9 +29,11 @@ pub fn ArrayList(T: type) type {
 }
 
 const title = "Voyager" ++ if (is_debug) " (Debug)" else "";
-const width = 1200 + if (is_debug) 400 else 0;
-const height = 600;
-const unfocused_fps = 15;
+const default_width = 1200 + if (is_debug) 400 else 0;
+const default_height = 600;
+const min_width = 240;
+const min_height = 320;
+const fps = .{ .focused = 0, .unfocused = 15 };
 const scroll_speed = 5;
 const mem_scale = 16;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
@@ -89,6 +91,10 @@ pub fn ibeam() void {
     if (clay.hovered()) cursor = .ibeam;
 }
 
+pub fn left_right_arrows() void {
+    if (clay.hovered()) cursor = .resize_ew;
+}
+
 var focused = true;
 
 pub fn getBounds(id: clay.Id) ?clay.BoundingBox {
@@ -136,10 +142,15 @@ pub fn main() !void {
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
     defer alloc.free(@as([*]u8, @ptrCast(arena.memory))[0..arena.capacity]);
 
-    _ = clay.initialize(arena, .{ .width = width, .height = height }, .{ .function = alert.updateClay });
+    _ = clay.initialize(
+        arena,
+        .{ .width = default_width, .height = default_height },
+        .{ .function = alert.updateClay },
+    );
     clay.setDebugModeEnabled(is_debug);
-    renderer.initialize(width, height, title, rl_config);
+    renderer.initialize(default_width, default_height, title, rl_config);
     rl.setExitKey(.null);
+    rl.setTargetFPS(fps.focused);
 
     prevKeyCallback = glfwSetKeyCallback(glfwGetCurrentContext(), &keyCallback);
 
@@ -163,7 +174,14 @@ pub fn main() !void {
 
 fn frame(model: *Model) void {
     // Update phase
-    clay.setLayoutDimensions(.{ .width = @floatFromInt(rl.getScreenWidth()), .height = @floatFromInt(rl.getScreenHeight()) });
+
+    var width, var height = .{ rl.getScreenWidth(), rl.getScreenHeight() };
+    const width_too_small, const height_too_small = .{ width < min_width, height < min_height };
+    if (width_too_small) width = min_width;
+    if (height_too_small) height = min_height;
+    if (width_too_small or height_too_small) rl.setWindowSize(width, height);
+
+    clay.setLayoutDimensions(.{ .width = @floatFromInt(width), .height = @floatFromInt(height) });
     clay.setPointerState(convertVector(rl.getMousePosition()), rl.isMouseButtonDown(.left));
     clay.updateScrollContainers(
         false,
@@ -174,7 +192,7 @@ fn frame(model: *Model) void {
     const new_focused = rl.isWindowFocused();
     if (new_focused != focused) {
         focused = new_focused;
-        rl.setTargetFPS(if (focused) 0 else unfocused_fps);
+        rl.setTargetFPS(if (focused) fps.focused else fps.unfocused);
     }
 
     model.update(Input.read()) catch |err| switch (err) {
@@ -189,6 +207,7 @@ fn frame(model: *Model) void {
     };
 
     // Render phase
+
     rl.beginDrawing();
     defer rl.endDrawing();
 

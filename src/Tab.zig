@@ -247,7 +247,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     return null;
 }
 
-pub fn render(tab: Tab) void {
+pub fn render(tab: Tab, shortcuts_width: usize) void {
     clay.ui()(.{
         .id = clay.id("TabContent"),
         .layout = .{
@@ -280,27 +280,41 @@ pub fn render(tab: Tab) void {
             },
             .bg_color = themes.current.bg,
         })({
-            const shortcut_width = 260; // TODO customizable
-
-            clay.ui()(.{
-                .id = clay.id("ShortcutsContainer"),
-                .layout = .{
-                    .padding = .all(10),
-                    .sizing = .{ .width = .fixed(shortcut_width) },
-                },
-            })({
+            if (shortcuts_width > 0) {
                 clay.ui()(.{
-                    .id = clay.id("Shortcuts"),
+                    .id = clay.id("ShortcutsContainer"),
                     .layout = .{
-                        .layout_direction = .top_to_bottom,
-                        .padding = .all(16),
+                        .padding = .all(10),
+                        .sizing = .{ .width = .fixed(@floatFromInt(shortcuts_width)) },
                     },
                 })({
-                    main.text("Shortcuts will go here");
+                    clay.ui()(.{
+                        .id = clay.id("Shortcuts"),
+                        .layout = .{
+                            .layout_direction = .top_to_bottom,
+                            .padding = .all(16),
+                        },
+                    })({
+                        // TODO Shortcuts!
+                    });
                 });
+            }
+
+            const shortcuts_width_handle_width: usize = if (shortcuts_width > 0) 10 else 0;
+
+            clay.ui()(.{
+                .id = Model.shortcuts_width_handle_id,
+                .layout = .{
+                    .sizing = .{
+                        .width = .fixed(@floatFromInt(shortcuts_width_handle_width)),
+                        .height = .grow(.{}),
+                    },
+                },
+            })({
+                main.left_right_arrows();
             });
 
-            tab.entries.render();
+            tab.entries.render(shortcuts_width + shortcuts_width_handle_width);
         });
     });
 }

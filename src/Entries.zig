@@ -191,7 +191,6 @@ const entries_id = clay.id("Entries");
 
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
-const entries_x_offset = 455; // TODO this includes shortcut width
 const entries_y_offset = 74 + Model.row_height + Model.tabs_height;
 const min_new_item_len = 24;
 const min_name_chars = 16;
@@ -199,18 +198,9 @@ const max_name_chars = 32;
 const type_chars = 12;
 const size_chars = 16;
 const timespan_chars = 20;
-
-fn getSizing(chars: comptime_int) clay.Config.Layout.Sizing {
-    return .{
-        .width = .fit(.{
-            .min = chars * char_px_width,
-            .max = chars * char_px_width,
-        }),
-    };
-}
-const type_sizing = getSizing(type_chars);
-const size_sizing = getSizing(size_chars);
-const timespan_sizing = getSizing(timespan_chars);
+const type_sizing: clay.Config.Layout.Sizing = .{ .width = .fixed(type_chars * char_px_width) };
+const size_sizing: clay.Config.Layout.Sizing = .{ .width = .fixed(size_chars * char_px_width) };
+const timespan_sizing: clay.Config.Layout.Sizing = .{ .width = .fixed(timespan_chars * char_px_width) };
 
 fn kinds() []const Kind {
     return enums.values(Kind);
@@ -476,9 +466,9 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
     return null;
 }
 
-pub fn render(entries: Entries) void {
+pub fn render(entries: Entries, left_margin: usize) void {
     const width: usize = @intCast(rl.getScreenWidth());
-    const shortcuts_width = 280; // TODO
+    const cutoff_start = 195 + left_margin;
     const max_name_len = if (entries.new_item != null) @max(min_new_item_len, entries.max_name_len) else entries.max_name_len;
     const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
     const name_sizing = clay.Config.Layout.Sizing{ .width = .fixed(@floatFromInt(name_chars * char_px_width)) };
@@ -489,10 +479,12 @@ pub fn render(entries: Entries) void {
         .child_gap = 4,
     };
 
+    const container_pad = 10;
+
     clay.ui()(.{
         .id = container_id,
         .layout = .{
-            .padding = .{ .left = 10, .right = 10, .top = 0, .bottom = 10 },
+            .padding = .{ .left = container_pad, .right = container_pad, .bottom = container_pad },
             .sizing = .grow(.{}),
             .layout_direction = .top_to_bottom,
         },
@@ -538,7 +530,7 @@ pub fn render(entries: Entries) void {
                 }
             }.f;
 
-            var cutoff: usize = entries_x_offset;
+            var cutoff: usize = cutoff_start;
 
             column(entries, .name, name_sizing);
             cutoff += name_chars * char_px_width;
@@ -560,7 +552,7 @@ pub fn render(entries: Entries) void {
             .layout = .{
                 .padding = .all(10),
                 .sizing = .{
-                    .width = .grow(.{ .max = @floatFromInt(width -| shortcuts_width) }),
+                    .width = .fixed(@floatFromInt(width -| left_margin -| container_pad * 2)),
                     .height = .grow(.{}),
                 },
                 .layout_direction = .top_to_bottom,
@@ -642,7 +634,7 @@ pub fn render(entries: Entries) void {
                             })({});
                         });
 
-                        var cutoff: usize = entries_x_offset;
+                        var cutoff: usize = cutoff_start;
 
                         clay.ui()(.{
                             .id = getEntryId(kind, "Name", sorted_index),
