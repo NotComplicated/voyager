@@ -529,10 +529,6 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
             return self.content.items;
         }
 
-        pub fn toOwned(self: *Self) Model.Error![]const u8 {
-            return self.content.toOwnedSlice(main.alloc) catch Model.Error.OutOfMemory;
-        }
-
         pub fn isActive(self: Self) bool {
             return self.cursor != .none;
         }
@@ -770,9 +766,18 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                     var i: usize = 0;
                     while (entries.next() catch return) |entry| : (i += 1) {
                         if (i == max_completions_search) break;
-                        if (entry.kind == .directory and ascii.eqlIgnoreCase(entry.name, prefix)) {
+                        if (entry.kind == .directory and
+                            (if (main.is_windows)
+                                ascii.eqlIgnoreCase(entry.name, prefix)
+                            else
+                                mem.eql(u8, entry.name, prefix)))
+                        {
                             suggest_enter_dir = true;
-                        } else if (ascii.startsWithIgnoreCase(entry.name, prefix)) {
+                        } else if (if (main.is_windows)
+                            ascii.startsWithIgnoreCase(entry.name, prefix)
+                        else
+                            mem.startsWith(u8, entry.name, prefix))
+                        {
                             const start = math.lossyCast(u32, self.tab_complete.names.items.len);
                             self.tab_complete.names.appendSlice(main.alloc, entry.name[prefix.len..]) catch return;
                             const end = math.lossyCast(u32, self.tab_complete.names.items.len);
@@ -792,7 +797,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                         self.tab_complete.names.items,
                         struct {
                             fn f(names: []const u8, lhs: [2]u32, rhs: [2]u32) bool {
-                                return ascii.lessThanIgnoreCase(names[lhs[0]..lhs[1]], names[rhs[0]..rhs[1]]);
+                                return if (main.is_windows)
+                                    ascii.lessThanIgnoreCase(names[lhs[0]..lhs[1]], names[rhs[0]..rhs[1]])
+                                else
+                                    mem.lessThan(u8, names[lhs[0]..lhs[1]], names[rhs[0]..rhs[1]]);
                             }
                         }.f,
                     );
@@ -814,7 +822,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
 
         fn seps() []const u8 {
             return switch (kind) {
-                .path => if (main.is_windows) &.{ fs.path.sep_posix, fs.path.sep },
+                .path => &(.{fs.path.sep_posix} ++ if (main.is_windows) .{fs.path.sep_windows} else .{}),
                 .text => " ",
             };
         }

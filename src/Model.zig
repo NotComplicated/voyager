@@ -67,13 +67,13 @@ pub fn init(args: *process.ArgIterator) Error!Model {
     const path = fs.realpathAlloc(main.alloc, args.next() orelse ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
 
-    for (0..10) |_| try model.shortcuts.list.append(main.alloc, .{
+    for (0..10) |_| try model.shortcuts.bookmarks.append(main.alloc, .{
         .name = try main.alloc.dupe(u8, "Voyager"),
         .path = try main.alloc.dupe(u8, path),
         .icon = &resources.images.icon,
     }); // TODO
 
-    try model.tabs.append(main.alloc, try .init(path));
+    try model.tabs.append(main.alloc, try .init(path, model.shortcuts.isBookmarked(path)));
 
     return model;
 }
@@ -116,7 +116,7 @@ pub fn update(model: *Model, input: Input) Error!void {
 
     if (try model.shortcuts.update(input)) |message| switch (message) {
         .open => |path| {
-            const new_tab = try Tab.init(path);
+            const new_tab = try Tab.init(path, true);
             model.currTab().deinit();
             model.currTab().* = new_tab;
             return;
@@ -201,13 +201,22 @@ pub fn update(model: *Model, input: Input) Error!void {
             const first_name = names_iter.next();
             while (names_iter.next()) |name| {
                 try model.newTab();
-                try model.currTab().openDir(name);
+                const path = try model.currTab().openDir(name);
+                model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
                 model.curr_tab = old_tab;
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
-                try model.currTab().openDir(name);
+                const path = try model.currTab().openDir(name);
+                model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
             }
+        },
+        .open_parent_dir => {
+            const path = try model.currTab().openParentDir();
+            model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
+        },
+        .toggle_bookmark => |path| {
+            try model.shortcuts.toggleBookmark(path);
         },
     };
 }

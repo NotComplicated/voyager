@@ -321,12 +321,12 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
 
     if (entries.new_item) |*new_item| {
         if (try new_item.name.update(input)) |message| switch (message) {
-            .submit => {
+            .submit => |name| {
                 defer {
                     new_item.name.deinit();
                     entries.new_item = null;
                 }
-                return .{ .create = .{ .kind = new_item.kind, .name = try new_item.name.toOwned() } };
+                return .{ .create = .{ .kind = new_item.kind, .name = try main.alloc.dupe(u8, name) } };
             },
         };
         if (!focused or !new_item.name.isActive()) {
@@ -525,9 +525,9 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             },
                             .image = if (passed_entries.curr_sorting == sorting) .{
                                 .image_data = if (passed_entries.sort_type == .asc)
-                                    &resources.images.sort_asc
+                                    &resources.images.tri_up
                                 else
-                                    &resources.images.sort_desc,
+                                    &resources.images.tri_down,
                                 .source_dimensions = .square(20),
                             } else null,
                         })({});

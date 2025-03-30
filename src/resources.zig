@@ -80,8 +80,10 @@ const image_filenames = .{
     .image = "image.png",
     .refresh = "refresh.png",
     .vscode = "vs-code.png",
-    .sort_asc = "sort-asc.png",
-    .sort_desc = "sort-desc.png",
+    .tri_up = "tri-up.png",
+    .tri_down = "tri-down.png",
+    .not_bookmarked = "not-bookmarked.png",
+    .bookmarked = "bookmarked.png",
 };
 
 pub var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;

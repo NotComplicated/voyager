@@ -27,11 +27,14 @@ cwd: TextBox(.path, clay.id("CurrentDir")),
 cached_cwd: main.ArrayList(u8),
 del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
 entries: Entries,
+bookmarked: bool,
 
 const Tab = @This();
 
 pub const Message = union(enum) {
     open_dirs: []const u8,
+    open_parent_dir,
+    toggle_bookmark: []const u8,
 };
 
 const DelEvent = union(enum) {
@@ -45,6 +48,7 @@ const nav_buttons = .{
     .parent = clay.id("Parent"),
     .refresh = clay.id("Refresh"),
     .vscode = clay.id("VsCode"),
+    .bookmark = clay.id("ToggleBookmark"),
 };
 
 fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
@@ -68,7 +72,7 @@ fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
     });
 }
 
-pub fn init(path: []const u8) Model.Error!Tab {
+pub fn init(path: []const u8, bookmarked: bool) Model.Error!Tab {
     var cwd = try @FieldType(Tab, "cwd").init(path, .unfocused);
     errdefer cwd.deinit();
     var cached_cwd = try @FieldType(Tab, "cached_cwd").initCapacity(main.alloc, 256);
@@ -80,6 +84,7 @@ pub fn init(path: []const u8) Model.Error!Tab {
         .cached_cwd = cached_cwd,
         .del_history = if (main.is_windows) .{} else {},
         .entries = entries,
+        .bookmarked = bookmarked,
     };
 
     try tab.loadEntries(path);
@@ -104,15 +109,15 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
         log.debug("{}", .{tab});
     } else if (!tab.cwd.isActive() and !tab.entries.isActive()) {
         if (input.clicked(.side)) {
-            try tab.openParentDir();
-            return null;
+            return .open_parent_dir;
         } else if (input.clicked(.left)) {
             inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
                 if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                     switch (button) {
-                        .parent => try tab.openParentDir(),
+                        .parent => return .open_parent_dir,
                         .refresh => try tab.reloadEntries(),
                         .vscode => try tab.openVscode(),
+                        .bookmark => return .{ .toggle_bookmark = tab.cached_cwd.items },
                     }
                     return null;
                 }
@@ -158,8 +163,8 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 },
                 else => {},
             },
-            .up => if (input.alt) try tab.openParentDir(),
-            .backspace => try tab.openParentDir(),
+            .up => if (input.alt) return .open_parent_dir,
+            .backspace => return .open_parent_dir,
             else => {},
         },
     };
@@ -240,12 +245,10 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                             tab.del_history.appendAssumeCapacity(del_event.*);
                         };
                     }
-                } else {
-                    while (names_iter.next()) |name| {
-                        tab.cached_cwd.appendSlice(main.alloc, name);
-                        defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
-                        try ops.delete(tab.cached_cwd.items);
-                    }
+                } else while (names_iter.next()) |name| {
+                    tab.cached_cwd.appendSlice(main.alloc, name);
+                    defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
+                    try ops.delete(tab.cached_cwd.items);
                 }
                 try tab.reloadEntries();
             },
@@ -278,6 +281,10 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
 
             tab.cwd.render();
 
+            renderNavButton(
+                nav_buttons.bookmark,
+                if (tab.bookmarked) &resources.images.bookmarked else &resources.images.not_bookmarked,
+            );
             if (main.is_windows and windows.vscode_available) renderNavButton(nav_buttons.vscode, &resources.images.vscode);
         });
 
@@ -320,7 +327,11 @@ pub fn tabName(tab: Tab) []const u8 {
 }
 
 pub fn clone(tab: Tab) Model.Error!Tab {
-    return Tab.init(tab.cached_cwd.items);
+    return Tab.init(tab.cached_cwd.items, tab.bookmarked);
+}
+
+pub fn toggleBookmark(tab: *Tab) void {
+    tab.bookmarked = !tab.bookmarked;
 }
 
 fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
@@ -353,7 +364,7 @@ pub fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: an
     }
 }
 
-pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
+pub fn openDir(tab: *Tab, name: []const u8) Model.Error![]const u8 {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.appendPath(name);
 
@@ -364,6 +375,8 @@ pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
         },
         else => return err,
     };
+
+    return tab.cached_cwd.items;
 }
 
 pub fn newWindow(tab: *Tab) Model.Error!void {
@@ -376,10 +389,11 @@ pub fn newWindow(tab: *Tab) Model.Error!void {
     try openFileAt(exe_z, @ptrCast(tab.cached_cwd.items));
 }
 
-fn openParentDir(tab: *Tab) Model.Error!void {
+pub fn openParentDir(tab: *Tab) Model.Error![]const u8 {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.popPath();
     try tab.loadEntries(tab.cwd.value());
+    return tab.cached_cwd.items;
 }
 
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {
