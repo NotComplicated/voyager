@@ -11,6 +11,7 @@ const draw = @import("draw.zig");
 const windows = @import("windows.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
+const Shortcuts = @import("Shortcuts.zig");
 const Entries = @import("Entries.zig");
 
 const clay = @import("clay");
@@ -39,64 +40,11 @@ pub const Error = error{
 
 const TabIndex = u4;
 
-pub const Shortcuts = struct {
-    list: std.BufMap,
-    width: usize,
-    dragging: bool,
-
-    pub fn render(shortcuts: Shortcuts) void {
-        clay.ui()(.{
-            .id = clay.id("Shortcuts"),
-            .layout = .{
-                .padding = .all(16),
-                .sizing = .{ .width = .fixed(@floatFromInt(shortcuts.width)) },
-                .layout_direction = .top_to_bottom,
-                .child_gap = 12,
-            },
-            .scroll = .{ .horizontal = true },
-        })({
-            clay.ui()(.{
-                .id = clay.id("NewShortcut"),
-                .layout = .{
-                    .padding = .all(8),
-                    .sizing = .{ .width = .grow(.{}) },
-                },
-                .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
-                .corner_radius = draw.rounded,
-            })({
-                draw.pointer();
-                draw.textEx(.roboto, .lg, "New Shortcut", themes.current.text, shortcuts.width);
-            });
-
-            var shortcuts_iter = shortcuts.list.iterator();
-            var i: u32 = 0;
-            while (shortcuts_iter.next()) |entry| : (i += 1) {
-                const name = entry.key_ptr.*;
-
-                clay.ui()(.{
-                    .id = clay.idi("Shortcut", i),
-                    .layout = .{
-                        .padding = .all(8),
-                        .sizing = .{ .width = .grow(.{}) },
-                    },
-                    .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
-                    .corner_radius = draw.rounded,
-                })({
-                    draw.pointer();
-                    draw.textEx(.roboto, .lg, name, themes.current.text, shortcuts.width);
-                });
-            }
-        });
-    }
-};
-
 pub const row_height = 30;
 pub const tabs_height = 32;
 const max_tab_width = 240;
 const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = clay.id("NewTab");
-const shortcuts_width = .{ .min = 200, .max = 350, .default = 250, .cutoff = 500 };
-pub const shortcuts_width_handle_id = clay.id("ShortcutsWidthHandle");
 
 fn getTabIds(key: []const u8) [max_tabs]clay.Id {
     @setEvalBranchQuota(1500); // not sure why this needs to be here
@@ -113,16 +61,17 @@ pub fn init(args: *process.ArgIterator) Error!Model {
         .tabs = .empty,
         .curr_tab = 0,
         .tab_drag = null,
-        .shortcuts = .{
-            .list = std.BufMap.init(main.alloc),
-            .width = shortcuts_width.default,
-            .dragging = false,
-        },
+        .shortcuts = .init,
     };
-    errdefer model.tabs.deinit(main.alloc);
 
     const path = fs.realpathAlloc(main.alloc, args.next() orelse ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
+
+    for (0..10) |_| try model.shortcuts.list.append(main.alloc, .{
+        .name = try main.alloc.dupe(u8, "Voyager"),
+        .path = try main.alloc.dupe(u8, path),
+        .icon = &resources.images.icon,
+    }); // TODO
 
     try model.tabs.append(main.alloc, try .init(path));
 
@@ -132,6 +81,7 @@ pub fn init(args: *process.ArgIterator) Error!Model {
 pub fn deinit(model: *Model) void {
     for (model.tabs.items) |*tab| tab.deinit();
     model.tabs.deinit(main.alloc);
+    model.shortcuts.deinit();
 }
 
 pub fn update(model: *Model, input: Input) Error!void {
@@ -156,47 +106,61 @@ pub fn update(model: *Model, input: Input) Error!void {
         }
     }
 
-    if (clay.pointerOver(shortcuts_width_handle_id)) if (input.action) |action| switch (action) {
+    if (clay.pointerOver(Shortcuts.width_handle_id)) if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
             .pressed => model.shortcuts.dragging = true,
-            .down => {}, // handled down below
-            .released => model.shortcuts.dragging = false,
+            .down, .released => {}, // handled down below
         },
         else => {},
+    };
+
+    if (try model.shortcuts.update(input)) |message| switch (message) {
+        .open => |path| {
+            const new_tab = try Tab.init(path);
+            model.currTab().deinit();
+            model.currTab().* = new_tab;
+            return;
+        },
     };
 
     if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
             .pressed => {},
-            .down => if (model.tab_drag) |*dragging| {
-                if (dragging.dimming == 0 or dragging.dimming == 100) dragging.x_pos = input.mouse_pos.x;
+            .down => {
+                if (model.tab_drag) |*dragging| {
+                    if (dragging.dimming == 0 or dragging.dimming == 100) dragging.x_pos = input.mouse_pos.x;
 
-                const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
-                const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
-                const pos: usize = @intFromFloat(@max(0, dragging.x_pos - dragging.tab_offset + (tab_width / 2)) / tab_width);
-                if (pos < model.tabs.items.len and pos != model.curr_tab) {
-                    mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
-                    model.curr_tab = @intCast(pos);
-                }
+                    const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
+                    const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
+                    const pos: usize = @intFromFloat(@max(0, dragging.x_pos - dragging.tab_offset + (tab_width / 2)) / tab_width);
+                    if (pos < model.tabs.items.len and pos != model.curr_tab) {
+                        mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
+                        model.curr_tab = @intCast(pos);
+                    }
 
-                if (model.tabs.items.len > 1) {
-                    const onscreen = -30 < input.mouse_pos.x and
-                        input.mouse_pos.x <= @as(f32, @floatFromInt(rl.getScreenWidth())) + 30 and
-                        -50 < input.mouse_pos.y and
-                        input.mouse_pos.y <= @as(f32, @floatFromInt(rl.getScreenHeight())) + 30;
-                    const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
-                    dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
+                    if (model.tabs.items.len > 1) {
+                        const onscreen = -30 < input.mouse_pos.x and
+                            input.mouse_pos.x <= @as(f32, @floatFromInt(rl.getScreenWidth())) + 30 and
+                            -50 < input.mouse_pos.y and
+                            input.mouse_pos.y <= @as(f32, @floatFromInt(rl.getScreenHeight())) + 30;
+                        const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
+                        dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
+                    }
                 }
-            } else if (model.shortcuts.dragging) {
-                model.shortcuts.width = math.clamp(
-                    math.lossyCast(usize, input.mouse_pos.x),
-                    shortcuts_width.min,
-                    shortcuts_width.max,
-                );
+                if (model.shortcuts.dragging) {
+                    model.shortcuts.width = math.clamp(
+                        math.lossyCast(usize, input.mouse_pos.x),
+                        Shortcuts.widths.min,
+                        Shortcuts.widths.max,
+                    );
+                }
             },
-            .released => if (model.tab_drag) |dragging| {
-                if (dragging.dimming == 100) try model.popOutTab();
-                model.tab_drag = null;
+            .released => {
+                if (model.tab_drag) |dragging| {
+                    if (dragging.dimming == 100) try model.popOutTab();
+                    model.tab_drag = null;
+                }
+                model.shortcuts.dragging = false;
             },
         },
 
@@ -428,7 +392,7 @@ pub fn render(model: Model) void {
             }
         });
 
-        model.currTab().render(if (width > shortcuts_width.cutoff) model.shortcuts else null);
+        model.currTab().render(if (width > Shortcuts.widths.cutoff) model.shortcuts else null);
     });
 }
 

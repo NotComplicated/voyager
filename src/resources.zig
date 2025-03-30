@@ -155,6 +155,7 @@ pub fn init() !void {
         const image = try rl.loadImageFromMemory(@ptrCast(fs.path.extension(path)), @embedFile(path));
         defer image.unload();
         @field(images, filename) = try image.toTexture();
+        rl.setTextureFilter(@field(images, filename), .bilinear);
     }
     errdefer inline for (comptime meta.fieldNames(@TypeOf(images))) |image| @field(images, image).unload();
 
@@ -171,6 +172,7 @@ pub fn init() !void {
         ));
         defer icon.unload();
         file_icons[i][j] = try icon.toTexture();
+        rl.setTextureFilter(file_icons[i][j], .bilinear);
     };
     errdefer for (file_icons) |file_icons_row| for (file_icons_row) |file_icon| file_icon.unload();
 

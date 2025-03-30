@@ -279,11 +279,15 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
 pub fn init() Model.Error!Entries {
     const default_entry_cap = 128;
 
+    var names = try @FieldType(Entries, "names").initCapacity(main.alloc, default_entry_cap * 8);
+    errdefer names.deinit(main.alloc);
+    var sizes = try @FieldType(Entries, "sizes").initCapacity(main.alloc, default_entry_cap);
+    errdefer sizes.deinit(main.alloc);
     var entries = Entries{
         .data = .initFill(.{}),
         .data_slices = .initUndefined(),
-        .names = try .initCapacity(main.alloc, default_entry_cap * 8),
-        .sizes = try .initCapacity(main.alloc, default_entry_cap),
+        .names = names,
+        .sizes = sizes,
         .sortings = .initFill(.initFill(.empty)),
         .curr_sorting = .name,
         .sort_type = .asc,

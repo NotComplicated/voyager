@@ -2,11 +2,14 @@ const std = @import("std");
 const unicode = std.unicode;
 const math = std.math;
 const time = std.time;
+const log = std.log;
 const mem = std.mem;
 const win = std.os.windows;
 
 const clay = @import("clay");
 const rl = @import("raylib");
+
+const main = @import("main.zig");
 
 const Color = win.DWORD;
 
@@ -81,7 +84,6 @@ const SID_NAME_USE = enum(win.INT) {
     _,
 };
 
-pub const move_flags = win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH;
 const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
@@ -130,6 +132,11 @@ pub fn setTitleColor(color: clay.Color) void {
         &colorFromClay(color),
         @sizeOf(Color),
     );
+}
+
+pub fn moveFile(old_path: [:0]const u8, new_path: [:0]const u8) !void {
+    if (main.is_debug) log.debug("Move: {s} -> {s}", .{ old_path, new_path });
+    return win.MoveFileEx(old_path, new_path, win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH);
 }
 
 pub fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
@@ -183,8 +190,6 @@ fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam
     }
     return CallWindowProcW(oldWindowProc.?, handle, message, wparam, lparam);
 }
-
-pub extern fn MoveFileExA(old: win.LPCSTR, new: win.LPCSTR, flags: win.DWORD) callconv(.winapi) win.BOOL;
 
 pub extern fn ShellExecuteA(
     hwnd: ?win.HWND,

@@ -21,6 +21,7 @@ const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const Entries = @import("Entries.zig");
 const TextBox = @import("text_box.zig").TextBox;
+const Shortcuts = @import("Shortcuts.zig");
 
 cwd: TextBox(.path, clay.id("CurrentDir")),
 cached_cwd: main.ArrayList(u8),
@@ -68,13 +69,18 @@ fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
 }
 
 pub fn init(path: []const u8) Model.Error!Tab {
+    var cwd = try @FieldType(Tab, "cwd").init(path, .unfocused);
+    errdefer cwd.deinit();
+    var cached_cwd = try @FieldType(Tab, "cached_cwd").initCapacity(main.alloc, 256);
+    errdefer cached_cwd.deinit(main.alloc);
+    var entries = try Entries.init();
+    errdefer entries.deinit();
     var tab = Tab{
-        .cwd = try .init(path, .unfocused),
-        .cached_cwd = try .initCapacity(main.alloc, 256),
+        .cwd = cwd,
+        .cached_cwd = cached_cwd,
         .del_history = if (main.is_windows) .{} else {},
-        .entries = try .init(),
+        .entries = entries,
     };
-    errdefer tab.deinit();
 
     try tab.loadEntries(path);
 
@@ -249,7 +255,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     return null;
 }
 
-pub fn render(tab: Tab, maybe_shortcuts: ?Model.Shortcuts) void {
+pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
     clay.ui()(.{
         .id = clay.id("TabContent"),
         .layout = .{
@@ -287,7 +293,7 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Model.Shortcuts) void {
                 const shortcuts_width_handle_width = 10;
 
                 clay.ui()(.{
-                    .id = Model.shortcuts_width_handle_id,
+                    .id = Shortcuts.width_handle_id,
                     .layout = .{
                         .sizing = .{
                             .width = .fixed(shortcuts_width_handle_width),

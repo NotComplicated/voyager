@@ -27,7 +27,7 @@ const Theme = struct {
 };
 
 pub const catppuccin_mocha = Theme{
-    .alert = rgb(247, 55, 87),
+    .alert = rgb(221, 63, 58),
     .dim_text = rgb(164, 168, 184),
     .text = rgb(205, 214, 244),
     .bright_text = rgb(255, 255, 255),

@@ -22,15 +22,6 @@ pub fn mkdir(path: []const u8) !void {
     };
 }
 
-pub fn move(old_path: [*:0]const u8, new_path: [*:0]const u8) error{Failed}!void {
-    if (!main.is_windows) @compileError("OS not supported");
-    if (main.is_debug) log.debug("Move: {s} -> {s}", .{ old_path, new_path });
-    if (windows.MoveFileExA(old_path, new_path, windows.move_flags) == 0) {
-        alert.updateFmt("\"{s}\"", .{windows.getLastError()});
-        return error.Failed;
-    }
-}
-
 pub fn delete(path: [:0]const u8) Model.Error!(if (main.is_windows) ?windows.RecycleId else void) {
     if (!main.is_windows) return Model.Error.OsNotSupported; // TODO confirm delete
 
@@ -116,8 +107,14 @@ pub fn delete(path: [:0]const u8) Model.Error!(if (main.is_windows) ?windows.Rec
         return null;
     };
 
-    move(meta_temp_path, meta_path) catch return null;
-    move(path, trash_path) catch return null;
+    windows.moveFile(meta_temp_path, meta_path) catch |err| {
+        alert.update(err);
+        return null;
+    };
+    windows.moveFile(path, trash_path) catch |err| {
+        alert.update(err);
+        return null;
+    };
 
     return new_id;
 }
@@ -203,7 +200,7 @@ pub fn restore(disk: u8, ids: []const windows.RecycleId) if (main.is_windows) Mo
                     meta_path[index + 2] = 'R'; // replace $I with $R
                     break :trash meta_path;
                 };
-                move(trash_path, meta.restore_path) catch return Model.Error.RestoreFailure;
+                windows.moveFile(trash_path, meta.restore_path) catch return Model.Error.RestoreFailure;
                 fs.deleteFileAbsolute(meta_path) catch {};
             }
         }
