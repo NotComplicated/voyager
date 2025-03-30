@@ -187,7 +187,7 @@ pub fn init() !void {
                 @intFromEnum(size),
                 &all_codepoints,
             );
-            rl.setTextureFilter(font.texture, .bilinear);
+            rl.setTextureFilter(font.texture, .anisotropic_8x);
             fonts[i * meta.tags(FontSize).len + j] = font;
         }
     }

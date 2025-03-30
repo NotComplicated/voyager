@@ -302,11 +302,18 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
                 clay.ui()(.{
                     .id = Shortcuts.width_handle_id,
                     .layout = .{
+                        .padding = .horizontal(3),
                         .sizing = .{
-                            .width = .fixed(shortcuts_width_handle_width),
+                            .width = .fixed(shortcuts_width_handle_width - 6),
                             .height = .grow(.{}),
                         },
                     },
+                    .bg_color = if (shortcuts.dragging)
+                        themes.current.highlight
+                    else if (clay.hovered())
+                        themes.current.secondary
+                    else
+                        themes.current.bg,
                 })({
                     draw.left_right_arrows();
                 });
@@ -317,6 +324,10 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
             }
         });
     });
+}
+
+pub fn dir(tab: Tab) []const u8 {
+    return tab.cached_cwd.items;
 }
 
 pub fn tabName(tab: Tab) []const u8 {
@@ -364,7 +375,7 @@ pub fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: an
     }
 }
 
-pub fn openDir(tab: *Tab, name: []const u8) Model.Error![]const u8 {
+pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.appendPath(name);
 
@@ -375,8 +386,6 @@ pub fn openDir(tab: *Tab, name: []const u8) Model.Error![]const u8 {
         },
         else => return err,
     };
-
-    return tab.cached_cwd.items;
 }
 
 pub fn newWindow(tab: *Tab) Model.Error!void {
@@ -389,11 +398,10 @@ pub fn newWindow(tab: *Tab) Model.Error!void {
     try openFileAt(exe_z, @ptrCast(tab.cached_cwd.items));
 }
 
-pub fn openParentDir(tab: *Tab) Model.Error![]const u8 {
+pub fn openParentDir(tab: *Tab) Model.Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.popPath();
     try tab.loadEntries(tab.cwd.value());
-    return tab.cached_cwd.items;
 }
 
 fn openFile(tab: Tab, name: []const u8) Model.Error!void {

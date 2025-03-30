@@ -47,7 +47,7 @@ const max_tabs = math.maxInt(TabIndex);
 const new_tab_id = clay.id("NewTab");
 
 fn getTabIds(key: []const u8) [max_tabs]clay.Id {
-    @setEvalBranchQuota(1500); // not sure why this needs to be here
+    @setEvalBranchQuota(1500);
     var ids: [max_tabs]clay.Id = undefined;
     for (&ids, 0..) |*id, index| id.* = clay.idi(key, index);
     return ids;
@@ -66,13 +66,6 @@ pub fn init(args: *process.ArgIterator) Error!Model {
 
     const path = fs.realpathAlloc(main.alloc, args.next() orelse ".") catch return Error.OutOfMemory;
     defer main.alloc.free(path);
-
-    for (0..10) |_| try model.shortcuts.bookmarks.append(main.alloc, .{
-        .name = try main.alloc.dupe(u8, "Voyager"),
-        .path = try main.alloc.dupe(u8, path),
-        .icon = &resources.images.icon,
-    }); // TODO
-
     try model.tabs.append(main.alloc, try .init(path, model.shortcuts.isBookmarked(path)));
 
     return model;
@@ -121,7 +114,17 @@ pub fn update(model: *Model, input: Input) Error!void {
             model.currTab().* = new_tab;
             return;
         },
+        .bookmark_created => |path| {
+            model.updateTabsBookmarked(path);
+            return;
+        },
+        .bookmark_deleted => |path| {
+            defer main.alloc.free(path);
+            model.updateTabsBookmarked(path);
+            return;
+        },
     };
+    if (model.shortcuts.isActive()) return;
 
     if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
@@ -201,22 +204,23 @@ pub fn update(model: *Model, input: Input) Error!void {
             const first_name = names_iter.next();
             while (names_iter.next()) |name| {
                 try model.newTab();
-                const path = try model.currTab().openDir(name);
-                model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
+                try model.currTab().openDir(name);
+                model.updateTabsBookmarked(model.currTab().dir());
                 model.curr_tab = old_tab;
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
-                const path = try model.currTab().openDir(name);
-                model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
+                try model.currTab().openDir(name);
+                model.updateTabsBookmarked(model.currTab().dir());
             }
         },
         .open_parent_dir => {
-            const path = try model.currTab().openParentDir();
-            model.currTab().bookmarked = model.shortcuts.isBookmarked(path);
+            try model.currTab().openParentDir();
+            model.updateTabsBookmarked(model.currTab().dir());
         },
         .toggle_bookmark => |path| {
             try model.shortcuts.toggleBookmark(path);
+            model.updateTabsBookmarked(path);
         },
     };
 }
@@ -389,6 +393,7 @@ pub fn render(model: Model) void {
                         .image_data = &resources.images.plus,
                         .source_dimensions = .square(tabs_height),
                     },
+                    .bg_color = if (clay.pointerOver(new_tab_id)) themes.current.highlight else themes.current.secondary,
                     .floating = .{
                         .offset = .{ .x = @floatFromInt(x_offset) },
                         .z_index = 1,
@@ -428,4 +433,9 @@ fn closeTab(model: *Model, index: TabIndex) Error!void {
 fn popOutTab(model: *Model) Error!void {
     try model.currTab().newWindow();
     try model.closeTab(model.curr_tab);
+}
+
+fn updateTabsBookmarked(model: *Model, path: []const u8) void {
+    const bookmarked = model.shortcuts.isBookmarked(path);
+    for (model.tabs.items) |*tab| tab.bookmarked = bookmarked;
 }

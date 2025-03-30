@@ -10,6 +10,7 @@ const main = @import("main.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const draw = @import("draw.zig");
+const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const TextBox = @import("text_box.zig").TextBox;
@@ -30,10 +31,13 @@ pub const Bookmark = struct {
 
 pub const Message = union(enum) {
     open: []const u8,
+    bookmark_created: []const u8,
+    bookmark_deleted: []const u8,
 };
 
 pub const widths = .{ .min = 200, .max = 350, .default = 250, .cutoff = 500 };
 pub const width_handle_id = clay.id("ShortcutsWidthHandle");
+const bookmark_height = 32;
 
 pub const init = Shortcuts{
     .bookmarks = .empty,
@@ -56,13 +60,24 @@ pub fn deinit(shortcuts: *Shortcuts) void {
 }
 
 pub fn update(shortcuts: *Shortcuts, input: Input) Model.Error!?Message {
-    if (input.clicked(.left)) if (clay.pointerOver(clay.id("Shortcuts"))) {
-        if (clay.pointerOver(clay.id("BookmarksCollapse"))) {
-            shortcuts.show_bookmarks = !shortcuts.show_bookmarks;
+    if (shortcuts.new_bookmark != null) shortcuts.show_bookmarks = true;
+    if (clay.pointerOver(clay.id("Shortcuts"))) {
+        if (input.clicked(.left) and clay.pointerOver(clay.id("BookmarksCollapse"))) {
+            shortcuts.show_bookmarks = shortcuts.new_bookmark != null or !shortcuts.show_bookmarks;
         } else for (shortcuts.bookmarks.items, 0..) |bookmark, i| {
-            if (clay.pointerOver(clay.idi("Bookmark", @intCast(i)))) return .{ .open = bookmark.path };
+            if (input.clicked(.left) and clay.pointerOver(clay.idi("BookmarkDelete", @intCast(i)))) {
+                main.alloc.free(bookmark.name);
+                _ = shortcuts.bookmarks.orderedRemove(i);
+                return .{ .bookmark_deleted = bookmark.path };
+            }
+            if (clay.pointerOver(clay.idi("Bookmark", @intCast(i)))) {
+                if (input.clicked(.left)) return .{ .open = bookmark.path };
+                if (tooltip.update(input)) |writer| {
+                    try writer.writeAll(bookmark.path);
+                }
+            }
         }
-    };
+    }
 
     if (shortcuts.new_bookmark) |*new_bookmark| {
         if (try new_bookmark.name.update(input)) |message| switch (message) {
@@ -79,6 +94,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Model.Error!?Message {
                     .path = new_bookmark.path,
                     .icon = &resources.images.bookmarked,
                 });
+                return .{ .bookmark_created = new_bookmark.path };
             },
         };
     }
@@ -90,84 +106,103 @@ pub fn render(shortcuts: Shortcuts) void {
     clay.ui()(.{
         .id = clay.id("Shortcuts"),
         .layout = .{
-            .padding = .{ .left = 16, .right = 16, .top = 32, .bottom = 16 },
+            .padding = .{ .left = 16, .right = 8, .top = 32, .bottom = 16 },
             .sizing = .{ .width = .fixed(@floatFromInt(shortcuts.width)) },
             .layout_direction = .top_to_bottom,
         },
         .scroll = .{ .vertical = true, .horizontal = true },
     })({
-        clay.ui()(.{
-            .id = clay.id("Bookmarks"),
-            .layout = .{
-                .sizing = .grow(.{}),
-                .layout_direction = .top_to_bottom,
-                .child_gap = 12,
-            },
-        })({
+        if (shortcuts.bookmarks.items.len > 0 or shortcuts.new_bookmark != null) {
             clay.ui()(.{
-                .id = clay.id("BookmarksCollapse"),
+                .id = clay.id("Bookmarks"),
                 .layout = .{
-                    .padding = .all(8),
-                    .sizing = .{ .width = .grow(.{}) },
+                    .sizing = .grow(.{}),
+                    .layout_direction = .top_to_bottom,
+                    .child_gap = 12,
                 },
-                .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
-                .corner_radius = draw.rounded,
             })({
-                draw.pointer();
-                draw.textEx(.roboto, .sm, "Bookmarks", themes.current.dim_text, null);
-                clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
                 clay.ui()(.{
+                    .id = clay.id("BookmarksCollapse"),
                     .layout = .{
-                        .sizing = .fixed(16),
+                        .padding = .all(8),
+                        .sizing = .{ .width = .grow(.{}) },
                     },
-                    .image = .{
-                        .image_data = if (shortcuts.show_bookmarks)
-                            &resources.images.tri_up
-                        else
-                            &resources.images.tri_down,
-                        .source_dimensions = .square(16),
-                    },
-                })({});
-            });
-
-            const bookmark_layout = clay.Config.Layout{
-                .padding = .all(8),
-                .sizing = .{ .width = .grow(.{}) },
-                .child_alignment = .{ .y = .center },
-                .child_gap = 12,
-            };
-
-            if (shortcuts.new_bookmark) |new_bookmark| {
-                clay.ui()(.{
-                    .id = clay.id("NewBookmark"),
-                    .layout = bookmark_layout,
-                })({
-                    new_bookmark.name.render();
-                });
-            }
-
-            if (shortcuts.show_bookmarks) for (shortcuts.bookmarks.items, 0..) |bookmark, i| {
-                clay.ui()(.{
-                    .id = clay.idi("Bookmark", @intCast(i)),
-                    .layout = bookmark_layout,
                     .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
                     .corner_radius = draw.rounded,
                 })({
                     draw.pointer();
+                    draw.textEx(.roboto, .sm, "Bookmarks", themes.current.dim_text, null);
+                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
                     clay.ui()(.{
                         .layout = .{
-                            .sizing = .fixed(24),
+                            .sizing = .fixed(16),
                         },
                         .image = .{
-                            .image_data = bookmark.icon,
-                            .source_dimensions = .square(24),
+                            .image_data = if (shortcuts.show_bookmarks)
+                                &resources.images.tri_up
+                            else
+                                &resources.images.tri_down,
+                            .source_dimensions = .square(16),
                         },
                     })({});
-                    draw.textEx(.roboto, .md, bookmark.name, themes.current.text, shortcuts.width);
                 });
-            };
-        });
+
+                const bookmark_layout = clay.Config.Layout{
+                    .padding = .{ .left = 8, .right = 16, .top = 8, .bottom = 8 },
+                    .sizing = .{ .width = .grow(.{}), .height = .fit(.{ .min = bookmark_height + 16 }) },
+                    .child_alignment = .{ .y = .center },
+                    .child_gap = 12,
+                };
+
+                if (shortcuts.new_bookmark) |new_bookmark| {
+                    clay.ui()(.{
+                        .id = clay.id("NewBookmark"),
+                        .layout = bookmark_layout,
+                    })({
+                        new_bookmark.name.render();
+                    });
+                }
+
+                if (shortcuts.show_bookmarks) for (shortcuts.bookmarks.items, 0..) |bookmark, i| {
+                    clay.ui()(.{
+                        .id = clay.idi("Bookmark", @intCast(i)),
+                        .layout = bookmark_layout,
+                        .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
+                        .corner_radius = draw.rounded,
+                    })({
+                        draw.pointer();
+                        clay.ui()(.{
+                            .layout = .{
+                                .sizing = .fixed(24),
+                            },
+                            .image = .{
+                                .image_data = bookmark.icon,
+                                .source_dimensions = .square(24),
+                            },
+                        })({});
+                        draw.textEx(.roboto, .md, bookmark.name, themes.current.text, shortcuts.width);
+                        clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
+                        if (clay.hovered()) {
+                            clay.ui()(.{
+                                .id = clay.idi("BookmarkDelete", @intCast(i)),
+                                .layout = .{
+                                    .sizing = .{ .width = .fixed(9) },
+                                },
+                                .image = .{
+                                    .image_data = if (clay.hovered()) &resources.images.x else &resources.images.x_dim,
+                                    .source_dimensions = .{ .width = 9, .height = bookmark_height },
+                                },
+                            })({});
+                        }
+                    });
+                };
+            });
+        }
     });
+}
+
+pub fn isActive(shortcuts: Shortcuts) bool {
+    return if (shortcuts.new_bookmark) |new_bookmark| new_bookmark.name.isActive() else false;
 }
 
 pub fn isBookmarked(shortcuts: Shortcuts, path: []const u8) bool {
