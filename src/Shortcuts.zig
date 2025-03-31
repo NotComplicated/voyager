@@ -17,7 +17,10 @@ const TextBox = @import("text_box.zig").TextBox;
 
 bookmarks: main.ArrayList(Bookmark),
 show_bookmarks: bool,
-new_bookmark: ?struct { path: []const u8, name: TextBox(.text, clay.id("NewBookmarkInput")) },
+new_bookmark: ?struct {
+    path: []const u8,
+    name: TextBox(.text, clay.id("NewBookmarkInput"), clay.id("NewBookmarkInputSubmit")),
+},
 width: usize,
 dragging: bool,
 

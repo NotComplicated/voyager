@@ -23,7 +23,7 @@ const Entries = @import("Entries.zig");
 const TextBox = @import("text_box.zig").TextBox;
 const Shortcuts = @import("Shortcuts.zig");
 
-cwd: TextBox(.path, clay.id("CurrentDir")),
+cwd: TextBox(.path, clay.id("CurrentDir"), null),
 cached_cwd: main.ArrayList(u8),
 del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
 entries: Entries,
@@ -180,8 +180,11 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 },
             },
             .create => |create| {
-                defer main.alloc.free(create.name);
-                defer tab.reloadEntries() catch {};
+                defer {
+                    tab.reloadEntries() catch {};
+                    tab.entries.selectName(create.name) catch alert.updateFmt("Failed to find '{s}'.", .{create.name});
+                    main.alloc.free(create.name);
+                }
                 try tab.cached_cwd.append(main.alloc, fs.path.sep);
                 defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - 1);
                 try tab.cached_cwd.appendSlice(main.alloc, create.name);
@@ -421,14 +424,24 @@ fn undoDelete(tab: *Tab) Model.Error!void {
     const disk = fs.path.diskDesignator(tab.cached_cwd.items);
     if (disk.len == 0) return Model.Error.RestoreFailure;
     const del_event = tab.del_history.pop() orelse return;
-    switch (del_event) {
+    const names = switch (del_event) {
         .single => |id| try ops.restore(disk[0], &.{id}),
-        .multiple => |ids| {
+        .multiple => |ids| multiple: {
             defer main.alloc.free(ids);
-            try ops.restore(disk[0], ids);
+            break :multiple try ops.restore(disk[0], ids);
         },
-    }
+    } orelse return;
+    defer main.alloc.free(names);
+
     try tab.reloadEntries();
+
+    var names_iter = mem.tokenizeScalar(u8, names, 0);
+    while (names_iter.next()) |name| {
+        tab.entries.selectName(name) catch {
+            alert.updateFmt("Failed to find '{s}'.", .{name});
+            break;
+        };
+    }
 }
 
 fn openFileAt(path: [:0]const u8, args: ?[*:0]const u8) Model.Error!void {

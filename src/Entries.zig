@@ -39,7 +39,7 @@ timer: u32,
 selection: ?struct { from: struct { Kind, Index }, to: struct { Kind, Index } },
 view: enum { list, grid_sm, grid_md, grid_lg },
 row_len: Index,
-new_item: ?struct { kind: Kind, name: TextBox(.text, clay.id("NewItemInput")) },
+new_item: ?struct { kind: Kind, name: TextBox(.text, clay.id("NewItemInput"), clay.id("NewItemInputSubmit")) },
 
 const Entries = @This();
 
@@ -814,17 +814,22 @@ pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
     entries.row_len = 1;
 }
 
-pub fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
-    return .{
-        .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
-        .slice = entries.data_slices.get(kind),
-        .names = entries.names.items,
-        .reverse = entries.sort_type == .desc,
-    };
-}
-
 pub fn isActive(entries: Entries) bool {
     return entries.new_item != null;
+}
+
+pub fn selectName(entries: *Entries, name: []const u8) error{NotFound}!void {
+    for (kinds()) |kind| {
+        var sorted_iter = entries.sorted(kind, &.{.name});
+        var index: Index = 0;
+        while (sorted_iter.next()) |entry| : (index += 1) {
+            if (mem.eql(u8, entry.name, name)) {
+                entries.select(false, kind, index, true, false);
+                return;
+            }
+        }
+    }
+    return error.NotFound;
 }
 
 pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
@@ -838,6 +843,15 @@ pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, wr
     }
     try fmt.format(writer, "\nselection: {?}", .{entries.selection});
     if (entries.new_item) |new_item| try fmt.format(writer, "\nnew_item: {?}", .{new_item.name});
+}
+
+fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
+    return .{
+        .sort_list = entries.sortings.get(entries.curr_sorting).get(kind).items,
+        .slice = entries.data_slices.get(kind),
+        .names = entries.names.items,
+        .reverse = entries.sort_type == .desc,
+    };
 }
 
 fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {

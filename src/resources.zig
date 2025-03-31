@@ -82,6 +82,7 @@ const image_filenames = .{
     .vscode = "vs-code.png",
     .tri_up = "tri-up.png",
     .tri_down = "tri-down.png",
+    .checkmark = "checkmark.png",
     .not_bookmarked = "not-bookmarked.png",
     .bookmarked = "bookmarked.png",
 };

@@ -19,7 +19,7 @@ const rl = @import("raylib");
 
 tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
-tab_drag: ?struct { x_pos: f32, tab_offset: f32, dimming: i8 },
+tab_drag: ?struct { x_pos: f32, tab_offset: f32, dist: f32, dimming: i8 },
 shortcuts: Shortcuts,
 
 const Model = @This();
@@ -89,7 +89,12 @@ pub fn update(model: *Model, input: Input) Error!void {
             if (input.clicked(.left)) {
                 model.curr_tab = tab_index;
                 const offset = input.offset(tab_ids[index]) orelse return;
-                model.tab_drag = .{ .x_pos = input.mouse_pos.x, .tab_offset = offset.x, .dimming = 0 };
+                model.tab_drag = .{
+                    .x_pos = input.mouse_pos.x,
+                    .tab_offset = offset.x,
+                    .dist = 0,
+                    .dimming = 0,
+                };
                 return;
             }
             if (input.clicked(.middle)) {
@@ -131,7 +136,10 @@ pub fn update(model: *Model, input: Input) Error!void {
             .pressed => {},
             .down => {
                 if (model.tab_drag) |*dragging| {
-                    if (dragging.dimming == 0 or dragging.dimming == 100) dragging.x_pos = input.mouse_pos.x;
+                    if (dragging.dimming == 0 or dragging.dimming == 100) {
+                        dragging.dist += @abs(dragging.x_pos - input.mouse_pos.x);
+                        dragging.x_pos = input.mouse_pos.x;
+                    }
 
                     const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
                     const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
@@ -381,7 +389,7 @@ pub fn render(model: Model) void {
                 });
             }
 
-            if (model.tabs.items.len < max_tabs and model.tab_drag == null) {
+            if (model.tabs.items.len < max_tabs and (model.tab_drag == null or model.tab_drag.?.dist < 5)) {
                 const x_offset = @min(width - 8, model.tabs.items.len * tab_width + 4);
 
                 clay.ui()(.{

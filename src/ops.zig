@@ -172,11 +172,20 @@ pub fn readRecycleMeta(path: []const u8) Model.Error!windows.RecycleMeta {
     return meta;
 }
 
-pub fn restore(disk: u8, ids: []const windows.RecycleId) if (main.is_windows) Model.Error!void else @compileError("OS not supported") {
-    const sid = windows.getSid() catch |err| return alert.update(err);
+pub fn restore(
+    disk: u8,
+    ids: []const windows.RecycleId,
+) if (main.is_windows) Model.Error!?[]const u8 else @compileError("OS not supported") {
+    const sid = windows.getSid() catch |err| return {
+        alert.update(err);
+        return null;
+    };
     const recycle_path_fmt = "{c}:\\$Recycle.Bin\\{s}";
     const recycle_path = try fmt.allocPrint(main.alloc, recycle_path_fmt, .{ disk, sid });
     defer main.alloc.free(recycle_path);
+
+    var names = try std.ArrayList(u8).initCapacity(main.alloc, ids.len * 8);
+    errdefer names.deinit();
 
     var dir = fs.openDirAbsolute(recycle_path, .{ .iterate = true }) catch return Model.Error.RestoreFailure;
     defer dir.close();
@@ -202,9 +211,13 @@ pub fn restore(disk: u8, ids: []const windows.RecycleId) if (main.is_windows) Mo
                 };
                 windows.moveFile(trash_path, meta.restore_path) catch return Model.Error.RestoreFailure;
                 fs.deleteFileAbsolute(meta_path) catch {};
+                try names.appendSlice(fs.path.basename(meta.restore_path));
+                try names.append(0);
             }
         }
     }
+
+    return try names.toOwnedSlice();
 }
 
 fn extension(name: []const u8) []const u8 { // subtly different from fs.path.extension for dotfile handling

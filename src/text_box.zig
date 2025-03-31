@@ -14,12 +14,13 @@ const rl = @import("raylib");
 
 const main = @import("main.zig");
 const themes = @import("themes.zig");
+const resources = @import("resources.zig");
 const draw = @import("draw.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 
-pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
+pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.Id) type {
     return struct {
         content: main.ArrayList(u8),
         cursor: Cursor,
@@ -155,6 +156,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
         }
 
         fn handleInput(self: *Self, input: Input, maybe_updated: *bool) Model.Error!?Message {
+            if (checkmark_id) |c_id| if (input.clicked(.left) and clay.pointerOver(c_id)) {
+                return .{ .submit = self.value() };
+            };
+
             switch (self.cursor) {
                 .none => if (input.clicked(.left) and clay.pointerOver(id)) {
                     if (self.mouseAt(input.mouse_pos)) |at| {
@@ -522,6 +527,28 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id) type {
                         );
                     },
                 };
+
+                if (checkmark_id) |c_id| {
+                    clay.ui()(.{
+                        .id = c_id,
+                        .layout = .{
+                            .sizing = .fixed(32),
+                        },
+                        .floating = .{
+                            .z_index = 1,
+                            .attach_points = .{ .element = .right_center, .parent = .right_center },
+                            .parent_id = id.id,
+                            .attach_to = .parent,
+                        },
+                        .image = .{
+                            .image_data = &resources.images.checkmark,
+                            .source_dimensions = .square(32),
+                        },
+                        .bg_color = if (clay.hovered()) themes.current.bright_text else themes.current.text,
+                    })({
+                        draw.pointer();
+                    });
+                }
             });
         }
 
