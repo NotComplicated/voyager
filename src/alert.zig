@@ -10,12 +10,13 @@ const main = @import("main.zig");
 const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const Model = @import("Model.zig");
+const Error = @import("error.zig").Error;
 
 const error_duration = 1_500;
 const error_fade_duration = 300;
 const unexpected_error = "Unexpected Error";
 
-var alert: struct { timer: ?u32, msg: main.ArrayList(u8) } = .{ .timer = null, .msg = .empty };
+var alert: struct { timer: ?u32 = null, msg: main.ArrayList(u8) = .empty } = .{};
 
 pub fn deinit() void {
     alert.msg.deinit(main.alloc);
@@ -27,13 +28,13 @@ pub fn update(err: anyerror) void {
     alert.msg.clearRetainingCapacity();
     var writer = alert.msg.writer(main.alloc);
     switch (err) {
-        Model.Error.OsNotSupported => writer.writeAll("Action not supported on this system.") catch process.abort(),
-        Model.Error.ExeNotFound => writer.writeAll("Failed to open new window.") catch process.abort(),
-        Model.Error.AlreadyExists => writer.writeAll("A file with this name already exists.") catch process.abort(),
-        Model.Error.DeleteDirFailure => writer.writeAll("Failed to delete folder.") catch process.abort(),
-        Model.Error.DeleteFileFailure => writer.writeAll("Failed to delete file.") catch process.abort(),
-        Model.Error.RestoreFailure => writer.writeAll("Failed to restore from Recycle Bin.") catch process.abort(),
-        Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => writer.writeAll("Unable to open this folder.") catch process.abort(),
+        Error.Unexpected => writer.writeAll("An unexpected error has occurred.") catch process.abort(),
+        Error.ExeNotFound => writer.writeAll("Failed to open new window.") catch process.abort(),
+        Error.AlreadyExists => writer.writeAll("A file with this name already exists.") catch process.abort(),
+        Error.DeleteDirFailure => writer.writeAll("Failed to delete folder.") catch process.abort(),
+        Error.DeleteFileFailure => writer.writeAll("Failed to delete file.") catch process.abort(),
+        Error.RestoreFailure => writer.writeAll("Failed to restore from Recycle Bin.") catch process.abort(),
+        Error.DirAccessDenied, Error.OpenDirFailure => writer.writeAll("Unable to open this folder.") catch process.abort(),
         else => {
             const err_name = @errorName(err);
             _ = writer.writeAll("Error: \"") catch process.abort();

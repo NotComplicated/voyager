@@ -14,6 +14,7 @@ const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const TextBox = @import("text_box.zig").TextBox;
+const Error = @import("error.zig").Error;
 
 bookmarks: main.ArrayList(Bookmark),
 show_bookmarks: bool,
@@ -62,7 +63,7 @@ pub fn deinit(shortcuts: *Shortcuts) void {
     }
 }
 
-pub fn update(shortcuts: *Shortcuts, input: Input) Model.Error!?Message {
+pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
     if (shortcuts.new_bookmark != null) shortcuts.show_bookmarks = true;
     if (clay.pointerOver(clay.id("Shortcuts"))) {
         if (input.clicked(.left) and clay.pointerOver(clay.id("BookmarksCollapse"))) {
@@ -221,7 +222,7 @@ pub fn isBookmarked(shortcuts: Shortcuts, path: []const u8) bool {
     return false;
 }
 
-pub fn toggleBookmark(shortcuts: *Shortcuts, path: []const u8) Model.Error!void {
+pub fn toggleBookmark(shortcuts: *Shortcuts, path: []const u8) Error!void {
     for (shortcuts.bookmarks.items, 0..) |bookmark, i| {
         if (if (main.is_windows)
             ascii.eqlIgnoreCase(bookmark.path, path)

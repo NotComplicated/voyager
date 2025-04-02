@@ -24,6 +24,7 @@ const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const TextBox = @import("text_box.zig").TextBox;
+const Error = @import("error.zig").Error;
 
 const extensions: []const struct { []const u8, []const u8 } = @import("extensions.zon");
 
@@ -242,7 +243,7 @@ fn nanosToMillis(nanos: i128) u64 {
     return math.lossyCast(u64, @divTrunc(nanos, time.ns_per_ms));
 }
 
-fn printDate(millis: u64, writer: anytype) Model.Error!void {
+fn printDate(millis: u64, writer: anytype) Error!void {
     const GetTimezone = struct {
         var bias: ?i32 = null;
 
@@ -273,10 +274,10 @@ fn printDate(millis: u64, writer: anytype) Model.Error!void {
         hour,
         datetime.time.minute,
         datetime.time.amOrPm(),
-    }) catch return Model.Error.OutOfMemory;
+    }) catch return Error.OutOfMemory;
 }
 
-pub fn init() Model.Error!Entries {
+pub fn init() Error!Entries {
     const default_entry_cap = 128;
 
     var names = try @FieldType(Entries, "names").initCapacity(main.alloc, default_entry_cap * 8);
@@ -299,10 +300,10 @@ pub fn init() Model.Error!Entries {
         .new_item = null,
     };
     for (&entries.data.values) |*data| {
-        data.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Model.Error.OutOfMemory;
+        data.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Error.OutOfMemory;
     }
     for (&entries.sortings.values) |*sorting| {
-        for (&sorting.values) |*arr| arr.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Model.Error.OutOfMemory;
+        for (&sorting.values) |*arr| arr.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Error.OutOfMemory;
     }
 
     return entries;
@@ -316,7 +317,7 @@ pub fn deinit(entries: *Entries) void {
     if (entries.new_item) |*new_item| new_item.name.deinit();
 }
 
-pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Message {
+pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
     entries.timer +|= input.delta_ms;
 
     if (entries.new_item) |*new_item| {
@@ -441,7 +442,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
                     if (clay.pointerOver(getEntryId(kind, "Name", sorted_index))) {
                         const start, const end = entries.data_slices.get(kind).items(.name)[entry.index];
                         if (end - start > max_name_chars) {
-                            writer.writeAll(entries.names.items[start..end]) catch return Model.Error.OutOfMemory;
+                            writer.writeAll(entries.names.items[start..end]) catch return Error.OutOfMemory;
                         }
                     } else if (clay.pointerOver(getEntryId(kind, "Type", sorted_index))) {
                         if (kind == .file) {
@@ -451,11 +452,11 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Model.Error!?Messa
                                 if (extension.len > ext_len) "" else file_types.get(extension[1..]) orelse ""
                             else
                                 "";
-                            writer.writeAll(file_type) catch return Model.Error.OutOfMemory;
+                            writer.writeAll(file_type) catch return Error.OutOfMemory;
                         }
                     } else if (kind == .file and clay.pointerOver(getEntryId(kind, "Size", sorted_index))) {
                         const size = entries.data_slices.get(kind).items(.size)[entry.index];
-                        if (size > 1000) writer.print("{} bytes", .{size}) catch return Model.Error.OutOfMemory;
+                        if (size > 1000) writer.print("{} bytes", .{size}) catch return Error.OutOfMemory;
                     } else if (clay.pointerOver(getEntryId(kind, "Created", sorted_index))) {
                         if (entries.data_slices.get(kind).items(.created_millis)[entry.index]) |created_millis| {
                             try printDate(created_millis, writer);
@@ -735,10 +736,10 @@ pub fn render(entries: Entries, left_margin: usize) void {
     });
 }
 
-pub fn load(entries: *Entries, path: []const u8) Model.Error!void {
-    if (!fs.path.isAbsolute(path)) return Model.Error.OpenDirFailure;
+pub fn load(entries: *Entries, path: []const u8) Error!void {
+    if (!fs.path.isAbsolute(path)) return Error.OpenDirFailure;
     var dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |err|
-        return if (err == error.AccessDenied) Model.Error.DirAccessDenied else Model.Error.OpenDirFailure;
+        return if (err == error.AccessDenied) Error.DirAccessDenied else Error.OpenDirFailure;
     defer dir.close();
 
     for (&entries.data.values) |*data| data.shrinkRetainingCapacity(0);
@@ -854,7 +855,7 @@ fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldEnum(
     };
 }
 
-fn sort(entries: *Entries, comptime sorting: Sorting) Model.Error!void {
+fn sort(entries: *Entries, comptime sorting: Sorting) Error!void {
     const sort_lists = entries.sortings.getPtr(sorting);
 
     inline for (comptime kinds()) |kind| {
@@ -949,7 +950,7 @@ fn select(
     index: Index,
     multi: bool,
     bulk: bool,
-) if (clicked) Model.Error!?Message else void {
+) if (clicked) Error!?Message else void {
     if (clicked and
         entries.selection != null and
         meta.eql(entries.selection.?.to, .{ kind, index }) and

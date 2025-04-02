@@ -19,12 +19,9 @@ var tooltip: struct {
         disabled,
         delay: struct { timer: u32, pos: clay.Vector2 },
         enabled: struct { pos: clay.Vector2 },
-    },
-    msg: main.ArrayList(u8),
-} = .{
-    .state = .disabled,
-    .msg = .empty,
-};
+    } = .disabled,
+    msg: main.ArrayList(u8) = .empty,
+} = .{};
 
 pub fn deinit() void {
     tooltip.msg.deinit(main.alloc);

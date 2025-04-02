@@ -7,15 +7,16 @@ const clay = @import("clay");
 const renderer = clay.renderers.raylib;
 const rl = @import("raylib");
 
-const ops = @import("ops.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
+const modal = @import("modal.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
+const Error = @import("error.zig").Error;
 
 const builtin = @import("builtin");
 pub const is_debug = builtin.mode == .Debug;
@@ -84,6 +85,13 @@ fn keyCallback(window: *GlfwWindow, key: c_int, scancode: c_int, action: c_int, 
     }
 }
 
+fn mkdir(path: []const u8) !void {
+    fs.makeDirAbsolute(path) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
 pub fn main() !void {
     defer _ = if (is_debug) debug_alloc.deinit();
 
@@ -93,10 +101,10 @@ pub fn main() !void {
 
     data_path = try fs.getAppDataDir(alloc, data_dirname);
     defer alloc.free(data_path);
-    try ops.mkdir(data_path);
+    try mkdir(data_path);
     temp_path = try fs.path.join(alloc, &.{ data_path, temp_dirname });
     defer alloc.free(temp_path);
-    try ops.mkdir(temp_path);
+    try mkdir(temp_path);
 
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
@@ -125,6 +133,7 @@ pub fn main() !void {
 
     defer alert.deinit();
     defer tooltip.deinit();
+    defer modal.deinit();
 
     var model = try Model.init(&args);
     defer model.deinit();
@@ -156,7 +165,7 @@ fn frame(model: *Model) void {
     }
 
     model.update(Input.read()) catch |err| switch (err) {
-        Model.Error.GracefulShutdown => {
+        Error.GracefulShutdown => {
             rl.closeWindow();
             return;
         },
@@ -180,4 +189,5 @@ fn frame(model: *Model) void {
     model.render();
     alert.render();
     tooltip.render();
+    modal.render();
 }

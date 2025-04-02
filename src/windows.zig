@@ -2,14 +2,19 @@ const std = @import("std");
 const unicode = std.unicode;
 const math = std.math;
 const time = std.time;
+const fmt = std.fmt;
 const log = std.log;
 const mem = std.mem;
 const win = std.os.windows;
+const fs = std.fs;
+const io = std.io;
 
 const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
+const alert = @import("alert.zig");
+const Error = @import("error.zig").Error;
 
 const Color = win.DWORD;
 
@@ -84,6 +89,7 @@ const SID_NAME_USE = enum(win.INT) {
     _,
 };
 
+const meta_header = &(.{0x02} ++ .{0x00} ** 7);
 const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
@@ -139,7 +145,226 @@ pub fn moveFile(old_path: [:0]const u8, new_path: [:0]const u8) !void {
     return win.MoveFileEx(old_path, new_path, win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH);
 }
 
-pub fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
+pub fn shellExecStatusMessage(status: usize) []const u8 {
+    return switch (status) {
+        2 => "File not found.",
+        3 => "Path not found.",
+        5 => "Access denied.",
+        8 => "Out of memory.",
+        32 => "Dynamic-link library not found.",
+        26 => "Cannot share an open file.",
+        27 => "File association information not complete.",
+        28 => "DDE operation timed out.",
+        29 => "DDE operation failed.",
+        30 => "DDE operation is busy.",
+        31 => "File association not available.",
+        else => "Unknown status code.",
+    };
+}
+
+pub fn delete(path: [:0]const u8) Error!(if (main.is_windows) ?RecycleId else void) {
+    if (!main.is_windows) @compileError("OS not supported");
+
+    const delete_time = getFileTime();
+
+    const disk_designator = fs.path.diskDesignatorWindows(path);
+    if (disk_designator.len == 0) {
+        alert.updateFmt("Unexpected file path.", .{});
+        return null;
+    }
+
+    var delete_error: Error = undefined;
+    const metadata = metadata: {
+        if (fs.openFileAbsolute(path, .{})) |file| {
+            defer file.close();
+            delete_error = Error.DeleteFileFailure;
+            break :metadata file.metadata() catch return delete_error;
+        } else |err| if (err == error.IsDir) {
+            delete_error = Error.DeleteDirFailure;
+            var dir = fs.openDirAbsolute(path, .{ .iterate = true }) catch |dir_err| {
+                alert.update(dir_err);
+                return null;
+            };
+            defer dir.close();
+            var metadata = dir.metadata() catch return delete_error;
+            metadata.inner._size = 0;
+            var walker = dir.walk(main.alloc) catch return delete_error;
+            defer walker.deinit();
+            while (walker.next() catch return delete_error) |entry| {
+                if (entry.kind != .directory) {
+                    const file = entry.dir.openFile(entry.basename, .{}) catch return delete_error;
+                    defer file.close();
+                    const metadata_inner = file.metadata() catch return delete_error;
+                    metadata.inner._size += metadata_inner.size();
+                }
+            }
+            break :metadata metadata;
+        } else {
+            alert.update(err);
+            return null;
+        }
+    };
+
+    const sid = getSid() catch |err| {
+        alert.update(err);
+        return null;
+    };
+    const recycle_path = try fs.path.join(main.alloc, &.{ disk_designator, "$Recycle.Bin", sid });
+    defer main.alloc.free(recycle_path);
+
+    var prng = std.Random.DefaultPrng.init(@bitCast(time.milliTimestamp()));
+    const rand = prng.random();
+    var new_id: RecycleId = undefined;
+    for (&new_id) |*c| {
+        const n = rand.uintLessThan(u8, 36);
+        c.* = switch (n) {
+            0...9 => '0' + n,
+            10...35 => 'A' + (n - 10),
+            else => unreachable,
+        };
+    }
+    const trash_basename = "$R" ++ new_id;
+    const meta_basename = "$I" ++ new_id;
+
+    const name = fs.path.basename(path);
+    const ext = extension(name);
+    const path_fmt = "{s}{c}{s}{s}";
+    const trash_path = try fmt.allocPrintZ(main.alloc, path_fmt, .{ recycle_path, fs.path.sep, trash_basename, ext });
+    defer main.alloc.free(trash_path);
+    const meta_path = try fmt.allocPrintZ(main.alloc, path_fmt, .{ recycle_path, fs.path.sep, meta_basename, ext });
+    defer main.alloc.free(meta_path);
+
+    const meta_temp_path = try fs.path.joinZ(main.alloc, &.{ main.temp_path, meta_basename });
+    defer main.alloc.free(meta_temp_path);
+
+    const meta = RecycleMeta{
+        .size = metadata.size(),
+        .delete_time = delete_time,
+        .restore_path = path,
+    };
+    writeRecycleMeta(meta_temp_path, meta) catch |err| {
+        alert.update(err);
+        return null;
+    };
+
+    moveFile(meta_temp_path, meta_path) catch |err| {
+        alert.update(err);
+        return null;
+    };
+    moveFile(path, trash_path) catch |err| {
+        alert.update(err);
+        return null;
+    };
+
+    return new_id;
+}
+
+fn writeRecycleMeta(path: []const u8, meta: RecycleMeta) !void {
+    const meta_file = try fs.createFileAbsolute(path, .{});
+    defer meta_file.close();
+    var buf_writer = io.bufferedWriter(meta_file.writer());
+    const writer = buf_writer.writer();
+    try writer.writeAll(meta_header);
+    const size_le = mem.nativeToLittle(u64, meta.size);
+    try writer.writeAll(&mem.toBytes(size_le));
+    try writer.writeStructEndian(meta.delete_time, .little);
+    const wide_path = try unicode.wtf8ToWtf16LeAllocZ(main.alloc, meta.restore_path);
+    defer main.alloc.free(wide_path);
+    const wide_path_z = wide_path.ptr[0 .. wide_path.len + 1];
+    const wide_path_len_le = math.lossyCast(u32, mem.nativeToLittle(usize, wide_path_z.len));
+    try writer.writeAll(&mem.toBytes(wide_path_len_le));
+    try writer.writeAll(mem.sliceAsBytes(wide_path_z));
+    try buf_writer.flush();
+}
+
+pub fn readRecycleMeta(path: []const u8) Error!RecycleMeta {
+    if (!main.is_windows) @compileError("OS not supported");
+
+    const file = fs.openFileAbsolute(path, .{}) catch return Error.RestoreFailure;
+    defer file.close();
+
+    const meta_buf: []align(2) u8 = file.readToEndAllocOptions(
+        main.alloc,
+        10 * 1024,
+        256,
+        2,
+        null,
+    ) catch return Error.RestoreFailure;
+    defer main.alloc.free(meta_buf);
+
+    const header_index = mem.indexOf(u8, meta_buf, meta_header) orelse return Error.RestoreFailure;
+    var meta_buf_stream = io.fixedBufferStream(meta_buf[header_index + meta_header.len ..]);
+    const reader = meta_buf_stream.reader();
+
+    var meta: RecycleMeta = undefined;
+    meta.size = reader.readInt(@TypeOf(meta.size), .little) catch return Error.RestoreFailure;
+    meta.delete_time = reader.readStructEndian(@TypeOf(meta.delete_time), .little) catch return Error.RestoreFailure;
+    meta.restore_path = restore: {
+        const restore_len = reader.readInt(u32, .little) catch return Error.RestoreFailure;
+        const pos = meta_buf_stream.getPos() catch return Error.RestoreFailure;
+        if (pos % 2 != 0) return Error.RestoreFailure; // misaligned byte
+        const meta_buf_rem: []align(2) u8 = @alignCast(meta_buf_stream.buffer[pos..]);
+        if (meta_buf_rem.len < restore_len * 2) return Error.RestoreFailure;
+        const restore_path_wide: [*]u16 = @ptrCast(meta_buf_rem);
+        if (restore_path_wide[restore_len - 1] != 0) return Error.RestoreFailure;
+        break :restore try unicode.wtf16LeToWtf8AllocZ(main.alloc, restore_path_wide[0 .. restore_len - 1]);
+    };
+
+    return meta;
+}
+
+pub fn restore(disk: u8, ids: []const RecycleId) Error!?[]const u8 {
+    if (!main.is_windows) @compileError("OS not supported");
+
+    const sid = getSid() catch |err| return {
+        alert.update(err);
+        return null;
+    };
+    const recycle_path_fmt = "{c}:\\$Recycle.Bin\\{s}";
+    const recycle_path = try fmt.allocPrint(main.alloc, recycle_path_fmt, .{ disk, sid });
+    defer main.alloc.free(recycle_path);
+
+    var names = try std.ArrayList(u8).initCapacity(main.alloc, ids.len * 8);
+    errdefer names.deinit();
+
+    var dir = fs.openDirAbsolute(recycle_path, .{ .iterate = true }) catch return Error.RestoreFailure;
+    defer dir.close();
+    var entries = dir.iterate();
+    while (entries.next() catch return Error.RestoreFailure) |entry| {
+        for (ids) |id| {
+            const meta_basename = ("$I" ++ id).*;
+            if (mem.startsWith(u8, entry.name, &meta_basename)) {
+                const recycle_item_path_fmt = recycle_path_fmt ++ "\\{s}{s}";
+                const meta_path = try fmt.allocPrintZ(
+                    main.alloc,
+                    recycle_item_path_fmt,
+                    .{ disk, sid, meta_basename, extension(entry.name) },
+                );
+                defer main.alloc.free(meta_path);
+                const meta: RecycleMeta = try readRecycleMeta(meta_path);
+                defer main.alloc.free(meta.restore_path);
+
+                const trash_path = trash: {
+                    const index = mem.lastIndexOfScalar(u8, meta_path, '\\') orelse return Error.RestoreFailure;
+                    meta_path[index + 2] = 'R'; // replace $I with $R
+                    break :trash meta_path;
+                };
+                moveFile(trash_path, meta.restore_path) catch return Error.RestoreFailure;
+                fs.deleteFileAbsolute(meta_path) catch {};
+                try names.appendSlice(fs.path.basename(meta.restore_path));
+                try names.append(0);
+            }
+        }
+    }
+
+    return try names.toOwnedSlice();
+}
+
+fn extension(name: []const u8) []const u8 { // subtly different from fs.path.extension for dotfile handling
+    return if (mem.lastIndexOfScalar(u8, name, '.')) |i| name[i..] else "";
+}
+
+fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
     if (maybe_sid) |sid| return sid;
     var username_buf: [128:0]u8 = undefined;
     var username_size: win.ULONG = @intCast(username_buf.len);
@@ -156,23 +381,6 @@ pub fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
     if (ConvertSidToStringSidA(sid, &converted_sid) == 0 or converted_sid == null) return error.ConvertError;
     maybe_sid = mem.span(converted_sid.?);
     return maybe_sid.?;
-}
-
-pub fn shellExecStatusMessage(status: usize) []const u8 {
-    return switch (status) {
-        2 => "File not found.",
-        3 => "Path not found.",
-        5 => "Access denied.",
-        8 => "Out of memory.",
-        32 => "Dynamic-link library not found.",
-        26 => "Cannot share an open file.",
-        27 => "File association information not complete.",
-        28 => "DDE operation timed out.",
-        29 => "DDE operation failed.",
-        30 => "DDE operation is busy.",
-        31 => "File association not available.",
-        else => "Unknown status code.",
-    };
 }
 
 fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) callconv(.C) win.LRESULT {

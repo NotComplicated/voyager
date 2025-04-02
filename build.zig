@@ -5,8 +5,8 @@ const name = "voyager";
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const root = b.path("src/main.zig");
-    const console = b.option(bool, "console", "Enable console mode") orelse false;
+
+    const console = b.option(bool, "console", "Enable console mode") orelse (optimize == .Debug);
 
     const clay = b.dependency("clay_zig", .{
         .target = target,
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = root,
+        .root_source_file = b.path("src/main.zig"),
         .optimize = optimize,
         .target = target,
     });
@@ -33,12 +33,9 @@ pub fn build(b: *std.Build) !void {
 
     exe.root_module.addImport("clay", clay.module("clay"));
     exe.root_module.addImport("raylib", clay.module("raylib"));
-
-    for (raylib_config) |config| {
-        clay.artifact("raylib").root_module.addCMacro(config[0], config[1]);
-    }
-
     exe.root_module.addImport("datetime", datetime.module("datetime"));
+
+    for (raylib_config) |config| clay.artifact("raylib").root_module.addCMacro(config[0], config[1]);
 
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run " ++ name);

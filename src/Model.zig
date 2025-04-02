@@ -9,10 +9,12 @@ const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const draw = @import("draw.zig");
 const windows = @import("windows.zig");
+const modal = @import("modal.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
 const Shortcuts = @import("Shortcuts.zig");
 const Entries = @import("Entries.zig");
+const Error = @import("error.zig").Error;
 
 const clay = @import("clay");
 const rl = @import("raylib");
@@ -23,20 +25,6 @@ tab_drag: ?struct { x_pos: f32, tab_offset: f32, dist: f32, dimming: i8 },
 shortcuts: Shortcuts,
 
 const Model = @This();
-
-pub const Error = error{
-    GracefulShutdown,
-    OutOfMemory,
-    OsNotSupported,
-    ExeNotFound,
-    OutOfBounds,
-    OpenDirFailure,
-    DirAccessDenied,
-    AlreadyExists,
-    DeleteDirFailure,
-    DeleteFileFailure,
-    RestoreFailure,
-};
 
 const TabIndex = u4;
 
@@ -78,6 +66,8 @@ pub fn deinit(model: *Model) void {
 }
 
 pub fn update(model: *Model, input: Input) Error!void {
+    if (try modal.update(input) == .active) return;
+
     if (clay.pointerOver(new_tab_id) and input.clicked(.left)) try model.newTab();
 
     for (0..model.tabs.items.len) |index| {

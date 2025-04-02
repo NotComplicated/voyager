@@ -19,6 +19,7 @@ const draw = @import("draw.zig");
 const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
+const Error = @import("error.zig").Error;
 
 pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.Id) type {
     return struct {
@@ -31,6 +32,22 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             names: main.ArrayList(u8),
             state: union(enum) { unloaded, selecting: usize, just_updated: usize },
         } else void,
+
+        pub const empty = Self{
+            .content = .empty,
+            .cursor = .none,
+            .timer = 0,
+            .history = history: {
+                var history = @FieldType(Self, "history"){};
+                history.appendAssumeCapacity(.{ .content = .empty, .cursor = .none });
+                break :history history;
+            },
+            .tab_complete = if (kind == .path) .{
+                .completions = .empty,
+                .names = .empty,
+                .state = .unloaded,
+            } else {},
+        };
 
         const max_history = 16;
         const max_completions_search = 512;
@@ -71,28 +88,30 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             submit: []const u8,
         };
 
-        pub fn init(contents: []const u8, state: enum { unfocused, selected }) Model.Error!Self {
+        pub fn init(contents: []const u8, state: enum { unfocused, selected }) Error!Self {
+            var content = try @FieldType(Self, "content").initCapacity(main.alloc, 256);
+            errdefer content.deinit(main.alloc);
+
+            var completions = if (kind == .path)
+                try @FieldType(@FieldType(Self, "tab_complete"), "completions").initCapacity(main.alloc, 256)
+            else {};
+            errdefer if (kind == .path) completions.deinit(main.alloc);
+
+            var names = if (kind == .path)
+                try @FieldType(@FieldType(Self, "tab_complete"), "names").initCapacity(main.alloc, 256 * 8)
+            else {};
+            errdefer if (kind == .path) names.deinit(main.alloc);
+
             var text_box = Self{
-                .content = try .initCapacity(main.alloc, 256),
+                .content = content,
                 .cursor = switch (state) {
                     .unfocused => .none,
                     .selected => .{ .select = .{ .from = 0, .to = contents.len } },
                 },
                 .timer = 0,
                 .history = .{},
-                .tab_complete = if (kind == .path) .{
-                    .completions = try .initCapacity(main.alloc, 256),
-                    .names = try .initCapacity(main.alloc, 256 * 8),
-                    .state = .unloaded,
-                } else {},
+                .tab_complete = if (kind == .path) .{ .completions = completions, .names = names, .state = .unloaded } else {},
             };
-            errdefer {
-                text_box.content.deinit(main.alloc);
-                if (kind == .path) {
-                    text_box.tab_complete.completions.deinit(main.alloc);
-                    text_box.tab_complete.names.deinit(main.alloc);
-                }
-            }
 
             try text_box.content.appendSlice(main.alloc, contents);
 
@@ -114,7 +133,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             }
         }
 
-        pub fn update(self: *Self, input: Input) Model.Error!?Message {
+        pub fn update(self: *Self, input: Input) Error!?Message {
             var maybe_updated = self.cursor != .none and
                 input.action != null and
                 meta.activeTag(input.action.?) != .mouse;
@@ -140,8 +159,8 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                 switch (message) {
                     .submit => |contents| if (kind == .path) {
                         const realpath = fs.realpathAlloc(main.alloc, contents) catch |err| return switch (err) {
-                            error.OutOfMemory => Model.Error.OutOfMemory,
-                            else => Model.Error.OpenDirFailure,
+                            error.OutOfMemory => Error.OutOfMemory,
+                            else => Error.OpenDirFailure,
                         };
                         defer main.alloc.free(realpath);
                         self.content.clearRetainingCapacity();
@@ -155,7 +174,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             return maybe_message;
         }
 
-        fn handleInput(self: *Self, input: Input, maybe_updated: *bool) Model.Error!?Message {
+        fn handleInput(self: *Self, input: Input, maybe_updated: *bool) Error!?Message {
             if (checkmark_id) |c_id| if (input.clicked(.left) and clay.pointerOver(c_id)) {
                 return .{ .submit = self.value() };
             };
@@ -480,6 +499,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                                         .x = @floatFromInt(index * char_px_width + ibeam_x_offset),
                                         .y = ibeam_y_offset,
                                     },
+                                    .z_index = 4,
                                     .attach_points = .{ .element = .left_center, .parent = .left_center },
                                     .pointer_capture_mode = .passthrough,
                                     .attach_to = .parent,
@@ -535,7 +555,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                             .sizing = .fixed(32),
                         },
                         .floating = .{
-                            .z_index = 1,
+                            .z_index = 4,
                             .attach_points = .{ .element = .right_center, .parent = .right_center },
                             .parent_id = id.id,
                             .attach_to = .parent,
@@ -565,14 +585,14 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             self.timer = 0;
         }
 
-        pub fn set(self: *Self, new_value: []const u8) Model.Error!void {
+        pub fn set(self: *Self, new_value: []const u8) Error!void {
             self.content.clearRetainingCapacity();
             try self.content.appendSlice(main.alloc, new_value);
             self.cursor = .none;
             try self.updateHistory();
         }
 
-        pub fn popPath(self: *Self) Model.Error!void {
+        pub fn popPath(self: *Self) Error!void {
             if (kind != .path) @compileError("popPath only works on paths");
             const parent_dir_path = fs.path.dirname(self.value()) orelse return;
             self.content.shrinkRetainingCapacity(parent_dir_path.len);
@@ -580,7 +600,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             try self.updateHistory();
         }
 
-        pub fn appendPath(self: *Self, entry_name: []const u8) Model.Error!void {
+        pub fn appendPath(self: *Self, entry_name: []const u8) Error!void {
             if (kind != .path) @compileError("appendPath only works on paths");
             try self.content.append(main.alloc, fs.path.sep);
             try self.content.appendSlice(main.alloc, entry_name);
@@ -621,7 +641,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             return unicode.utf8CountCodepoints(self.value()) catch self.value().len;
         }
 
-        fn updateHistory(self: *Self) Model.Error!void {
+        fn updateHistory(self: *Self) Error!void {
             if (!mem.eql(u8, self.value(), self.history.get(self.history.len - 1).content.items)) {
                 const next_hist = self.history.addOne() catch rotate: {
                     mem.rotate(meta.Elem(@TypeOf(self.history.slice())), self.history.slice(), 1);
@@ -708,7 +728,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             }
         }
 
-        fn copy(self: *Self, selection: Selection) Model.Error!void {
+        fn copy(self: *Self, selection: Selection) Error!void {
             const left, const right = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
                 var chars_iter = chars.iterator();
                 for (0..selection.left()) |_| _ = chars_iter.nextCodepoint();
@@ -721,7 +741,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             rl.setClipboardText(@ptrCast(self.value()[left..right]));
         }
 
-        fn paste(self: *Self, index: usize, len: usize) Model.Error!void {
+        fn paste(self: *Self, index: usize, len: usize) Error!void {
             const clipboard = rl.getClipboardText();
             if (clipboard.len > max_paste_len) {
                 alert.updateFmt("Clipboard contents are too long ({} characters)", .{clipboard.len});
@@ -739,7 +759,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             }
         }
 
-        fn undo(self: *Self) Model.Error!void {
+        fn undo(self: *Self) Error!void {
             if (self.history.len > 1) {
                 self.history.len -= 1;
                 const prev = self.history.get(self.history.len - 1);
@@ -752,7 +772,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             }
         }
 
-        fn redo(self: *Self) Model.Error!void {
+        fn redo(self: *Self) Error!void {
             const next = self.history.addOne() catch return;
             self.content.clearRetainingCapacity();
             try self.content.appendSlice(main.alloc, next.content.items);

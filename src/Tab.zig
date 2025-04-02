@@ -11,21 +11,23 @@ const clay = @import("clay");
 const rl = @import("raylib");
 
 const main = @import("main.zig");
-const ops = @import("ops.zig");
 const windows = @import("windows.zig");
 const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const resources = @import("resources.zig");
 const alert = @import("alert.zig");
+const modal = @import("modal.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const Entries = @import("Entries.zig");
-const TextBox = @import("text_box.zig").TextBox;
 const Shortcuts = @import("Shortcuts.zig");
+const TextBox = @import("text_box.zig").TextBox;
+const Error = @import("error.zig").Error;
 
 cwd: TextBox(.path, clay.id("CurrentDir"), null),
 cached_cwd: main.ArrayList(u8),
 del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
+del_queue: ?[]const u8,
 entries: Entries,
 bookmarked: bool,
 
@@ -72,7 +74,7 @@ fn renderNavButton(id: clay.Id, icon: *rl.Texture) void {
     });
 }
 
-pub fn init(path: []const u8, bookmarked: bool) Model.Error!Tab {
+pub fn init(path: []const u8, bookmarked: bool) Error!Tab {
     var cwd = try @FieldType(Tab, "cwd").init(path, .unfocused);
     errdefer cwd.deinit();
     var cached_cwd = try @FieldType(Tab, "cached_cwd").initCapacity(main.alloc, 256);
@@ -83,6 +85,7 @@ pub fn init(path: []const u8, bookmarked: bool) Model.Error!Tab {
         .cwd = cwd,
         .cached_cwd = cached_cwd,
         .del_history = if (main.is_windows) .{} else {},
+        .del_queue = null,
         .entries = entries,
         .bookmarked = bookmarked,
     };
@@ -95,10 +98,11 @@ pub fn init(path: []const u8, bookmarked: bool) Model.Error!Tab {
 pub fn deinit(tab: *Tab) void {
     tab.cwd.deinit();
     tab.cached_cwd.deinit(main.alloc);
+    if (tab.del_queue) |del_queue| main.alloc.free(del_queue);
     tab.entries.deinit();
 }
 
-pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
+pub fn update(tab: *Tab, input: Input) Error!?Message {
     if (rl.isFileDropped()) {
         const files = rl.loadDroppedFiles();
         defer rl.unloadDroppedFiles(files);
@@ -128,7 +132,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
     if (try tab.cwd.update(input)) |message| {
         switch (message) {
             .submit => |path| tab.loadEntries(path) catch |err| switch (err) {
-                Model.Error.OpenDirFailure => {
+                Error.OpenDirFailure => {
                     const path_z = try main.alloc.dupeZ(u8, path);
                     defer main.alloc.free(path_z);
                     try openFileAt(path_z, null);
@@ -191,7 +195,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                 defer tab.cached_cwd.shrinkRetainingCapacity(tab.cached_cwd.items.len - create.name.len);
                 switch (create.kind) {
                     .dir => fs.makeDirAbsolute(tab.cached_cwd.items) catch |err| switch (err) {
-                        error.PathAlreadyExists => return Model.Error.AlreadyExists,
+                        error.PathAlreadyExists => return Error.AlreadyExists,
                         else => {
                             alert.update(err);
                             return null;
@@ -202,7 +206,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                             tab.cached_cwd.items,
                             .{ .exclusive = true },
                         ) catch |err| switch (err) {
-                            error.PathAlreadyExists => return Model.Error.AlreadyExists,
+                            error.PathAlreadyExists => return Error.AlreadyExists,
                             else => {
                                 alert.update(err);
                                 return null;
@@ -214,18 +218,22 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
             },
             .delete => |names| {
                 defer main.alloc.free(names);
-                try tab.cached_cwd.append(main.alloc, fs.path.sep);
-                const dir_len = tab.cached_cwd.items.len;
-                defer tab.cached_cwd.shrinkRetainingCapacity(dir_len - 1);
-                var names_iter = mem.tokenizeScalar(u8, names, '\x00');
-                if (main.is_windows) {
+
+                if (main.is_windows and !input.shift) {
+                    try tab.cached_cwd.append(main.alloc, fs.path.sep);
+                    const dir_len = tab.cached_cwd.items.len;
+                    defer tab.cached_cwd.shrinkRetainingCapacity(dir_len - 1);
+
                     var recycle_ids = std.ArrayList(windows.RecycleId).init(main.alloc);
                     defer recycle_ids.deinit();
+
                     var new_del_event: ?DelEvent = null;
+
+                    var names_iter = mem.tokenizeScalar(u8, names, '\x00');
                     while (names_iter.next()) |name| {
                         try tab.cached_cwd.appendSlice(main.alloc, name.ptr[0 .. name.len + 1]);
                         defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
-                        const recycle_id = try ops.delete(tab.cached_cwd.items[0 .. tab.cached_cwd.items.len - 1 :0]) orelse continue;
+                        const recycle_id = try windows.delete(tab.cached_cwd.items[0 .. tab.cached_cwd.items.len - 1 :0]) orelse continue;
                         if (new_del_event) |*del_event| switch (del_event.*) {
                             .single => |single| {
                                 try recycle_ids.append(single);
@@ -235,6 +243,7 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                             .multiple => try recycle_ids.append(recycle_id),
                         } else new_del_event = .{ .single = recycle_id };
                     }
+
                     if (new_del_event) |*del_event| {
                         if (meta.activeTag(del_event.*) == .multiple) {
                             del_event.* = .{ .multiple = try recycle_ids.toOwnedSlice() };
@@ -248,12 +257,62 @@ pub fn update(tab: *Tab, input: Input) Model.Error!?Message {
                             tab.del_history.appendAssumeCapacity(del_event.*);
                         };
                     }
-                } else while (names_iter.next()) |name| {
-                    tab.cached_cwd.appendSlice(main.alloc, name);
-                    defer tab.cached_cwd.shrinkRetainingCapacity(dir_len);
-                    try ops.delete(tab.cached_cwd.items);
+
+                    try tab.reloadEntries();
+                } else {
+                    if (tab.del_queue) |del_queue| main.alloc.free(del_queue);
+                    tab.del_queue = main.alloc.dupe(u8, names) catch return Error.OutOfMemory;
+                    errdefer {
+                        main.alloc.free(tab.del_queue.?);
+                        tab.del_queue = null;
+                    }
+
+                    const writers = modal.set(.confirm, Tab, tab, struct {
+                        fn f(tab_inner: *Tab) Error!void {
+                            const names_inner = tab_inner.del_queue orelse return;
+                            defer main.alloc.free(names_inner);
+                            tab_inner.del_queue = null;
+
+                            const cwd_len = tab_inner.cached_cwd.items.len;
+                            try tab_inner.cached_cwd.append(main.alloc, fs.path.sep);
+                            defer tab_inner.cached_cwd.shrinkRetainingCapacity(cwd_len);
+
+                            var dir_inner = fs.openDirAbsolute(
+                                tab_inner.cached_cwd.items,
+                                .{},
+                            ) catch return Error.OpenDirFailure;
+                            defer dir_inner.close();
+
+                            var names_iter = mem.tokenizeScalar(u8, names_inner, '\x00');
+                            var errors: u32 = 0;
+                            while (names_iter.next()) |name| dir_inner.deleteTree(name) catch {
+                                errors += 1;
+                            };
+                            if (errors > 0) alert.updateFmt("Encountered {} error(s).", .{errors});
+
+                            tab_inner.cached_cwd.shrinkRetainingCapacity(cwd_len);
+                            try tab_inner.reloadEntries();
+                        }
+                    }.f);
+                    errdefer modal.reset();
+
+                    const name_count = mem.count(u8, names, "\x00");
+                    if (name_count > 1) {
+                        fmt.format(
+                            writers.message,
+                            "Permanently delete {} items?",
+                            .{name_count},
+                        ) catch return Error.OutOfMemory;
+                    } else {
+                        fmt.format(
+                            writers.message,
+                            "Permanently delete '{s}'?",
+                            .{mem.trimRight(u8, names, "\x00")},
+                        ) catch return Error.OutOfMemory;
+                    }
+                    writers.reject.writeAll("Cancel") catch return Error.Unexpected;
+                    writers.accept.writeAll("Delete") catch return Error.Unexpected;
                 }
-                try tab.reloadEntries();
             },
         }
     }
@@ -340,7 +399,7 @@ pub fn tabName(tab: Tab) []const u8 {
     else if (main.is_windows) fs.path.diskDesignator(tab.cached_cwd.items) else "/";
 }
 
-pub fn clone(tab: Tab) Model.Error!Tab {
+pub fn clone(tab: Tab) Error!Tab {
     return Tab.init(tab.cached_cwd.items, tab.bookmarked);
 }
 
@@ -348,7 +407,7 @@ pub fn toggleBookmark(tab: *Tab) void {
     tab.bookmarked = !tab.bookmarked;
 }
 
-fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
+fn loadEntries(tab: *Tab, path: []const u8) Error!void {
     const reloaded = mem.eql(u8, tab.cached_cwd.items, path);
     try tab.entries.load(path);
     tab.cached_cwd.clearRetainingCapacity();
@@ -359,7 +418,7 @@ fn loadEntries(tab: *Tab, path: []const u8) Model.Error!void {
     };
 }
 
-pub fn reloadEntries(tab: *Tab) Model.Error!void {
+pub fn reloadEntries(tab: *Tab) Error!void {
     try tab.entries.load(tab.cached_cwd.items);
 }
 
@@ -378,12 +437,12 @@ pub fn format(tab: Tab, comptime _: []const u8, _: fmt.FormatOptions, writer: an
     }
 }
 
-pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
+pub fn openDir(tab: *Tab, name: []const u8) Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.appendPath(name);
 
     tab.loadEntries(tab.cwd.value()) catch |err| switch (err) {
-        Model.Error.DirAccessDenied, Model.Error.OpenDirFailure => {
+        Error.DirAccessDenied, Error.OpenDirFailure => {
             try tab.cwd.popPath();
             return err;
         },
@@ -391,8 +450,8 @@ pub fn openDir(tab: *Tab, name: []const u8) Model.Error!void {
     };
 }
 
-pub fn newWindow(tab: *Tab) Model.Error!void {
-    const exe = fs.selfExePathAlloc(main.alloc) catch return Model.Error.ExeNotFound;
+pub fn newWindow(tab: *Tab) Error!void {
+    const exe = fs.selfExePathAlloc(main.alloc) catch return Error.ExeNotFound;
     defer main.alloc.free(exe);
     const exe_z = try main.alloc.dupeZ(u8, exe);
     defer main.alloc.free(exe_z);
@@ -401,34 +460,35 @@ pub fn newWindow(tab: *Tab) Model.Error!void {
     try openFileAt(exe_z, @ptrCast(tab.cached_cwd.items));
 }
 
-pub fn openParentDir(tab: *Tab) Model.Error!void {
+pub fn openParentDir(tab: *Tab) Error!void {
     try tab.cwd.set(tab.cached_cwd.items);
     try tab.cwd.popPath();
     try tab.loadEntries(tab.cwd.value());
 }
 
-fn openFile(tab: Tab, name: []const u8) Model.Error!void {
+fn openFile(tab: Tab, name: []const u8) Error!void {
     const path = try fs.path.joinZ(main.alloc, &.{ tab.cached_cwd.items, name });
     defer main.alloc.free(path);
     try openFileAt(path, null);
 }
 
-fn openVscode(tab: Tab) Model.Error!void {
+fn openVscode(tab: Tab) Error!void {
     const path = try main.alloc.dupeZ(u8, tab.cwd.value());
     defer main.alloc.free(path);
     try openFileAt("code", path);
 }
 
-fn undoDelete(tab: *Tab) Model.Error!void {
+fn undoDelete(tab: *Tab) Error!void {
     if (!main.is_windows) @compileError("OS not supported");
+
     const disk = fs.path.diskDesignator(tab.cached_cwd.items);
-    if (disk.len == 0) return Model.Error.RestoreFailure;
+    if (disk.len == 0) return Error.RestoreFailure;
     const del_event = tab.del_history.pop() orelse return;
     const names = switch (del_event) {
-        .single => |id| try ops.restore(disk[0], &.{id}),
+        .single => |id| try windows.restore(disk[0], &.{id}),
         .multiple => |ids| multiple: {
             defer main.alloc.free(ids);
-            break :multiple try ops.restore(disk[0], ids);
+            break :multiple try windows.restore(disk[0], ids);
         },
     } orelse return;
     defer main.alloc.free(names);
@@ -444,8 +504,11 @@ fn undoDelete(tab: *Tab) Model.Error!void {
     }
 }
 
-fn openFileAt(path: [:0]const u8, args: ?[*:0]const u8) Model.Error!void {
-    if (!main.is_windows) return Model.Error.OsNotSupported;
-    const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, args, null, 0));
-    if (status <= 32) return alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
+fn openFileAt(path: [:0]const u8, args: ?[*:0]const u8) Error!void {
+    if (main.is_windows) {
+        const status = @intFromPtr(windows.ShellExecuteA(windows.getHandle(), null, path, args, null, 0));
+        if (status <= 32) alert.updateFmt("{s}", .{windows.shellExecStatusMessage(status)});
+    } else {
+        // TODO posix execv
+    }
 }
