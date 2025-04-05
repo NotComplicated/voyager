@@ -158,11 +158,19 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             if (maybe_message) |message| {
                 switch (message) {
                     .submit => |contents| if (kind == .path) {
-                        const realpath = fs.realpathAlloc(main.alloc, contents) catch |err| return switch (err) {
+                        var realpath = fs.realpathAlloc(main.alloc, contents) catch |err| return switch (err) {
                             error.OutOfMemory => Error.OutOfMemory,
                             else => Error.OpenDirFailure,
                         };
                         defer main.alloc.free(realpath);
+
+                        // windows has an awful realpath API
+                        if (main.is_windows and ascii.eqlIgnoreCase(contents, fs.path.diskDesignator(realpath))) {
+                            main.alloc.free(realpath);
+                            realpath = try mem.concat(main.alloc, u8, &.{ contents, fs.path.sep_str });
+                            self.cursor = .{ .at = self.utf8Len() + 1 };
+                        }
+
                         self.content.clearRetainingCapacity();
                         try self.content.appendSlice(main.alloc, realpath);
                         self.fixCursor();
@@ -803,8 +811,13 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     else
                         mem.lastIndexOfScalar(u8, self.value(), fs.path.sep) orelse return;
                     const prefix = self.value()[last_sep + 1 ..];
-                    const dir_path = fs.realpathAlloc(main.alloc, self.value()[0..last_sep]) catch return;
+                    const relative_dir_path = self.value()[0..last_sep];
+                    var dir_path = fs.realpathAlloc(main.alloc, relative_dir_path) catch return;
                     defer main.alloc.free(dir_path);
+                    if (main.is_windows and ascii.eqlIgnoreCase(relative_dir_path, fs.path.diskDesignator(dir_path))) {
+                        main.alloc.free(dir_path);
+                        dir_path = mem.concat(main.alloc, u8, &.{ relative_dir_path, fs.path.sep_str }) catch return;
+                    }
 
                     var dir = fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
                     defer dir.close();

@@ -133,6 +133,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
         switch (message) {
             .submit => |path| tab.loadEntries(path) catch |err| switch (err) {
                 Error.OpenDirFailure => {
+                    if (main.is_windows and mem.eql(u8, fs.path.diskDesignator(path), path)) return null;
                     const path_z = try main.alloc.dupeZ(u8, path);
                     defer main.alloc.free(path_z);
                     try openFileAt(path_z, null);
@@ -359,14 +360,13 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
         })({
             if (maybe_shortcuts) |shortcuts| {
                 shortcuts.render();
-                const shortcuts_width_handle_width = 10;
+                const shortcuts_width_handle_width = 5;
 
                 clay.ui()(.{
                     .id = Shortcuts.width_handle_id,
                     .layout = .{
-                        .padding = .horizontal(3),
                         .sizing = .{
-                            .width = .fixed(shortcuts_width_handle_width - 6),
+                            .width = .fixed(shortcuts_width_handle_width),
                             .height = .grow(.{}),
                         },
                     },

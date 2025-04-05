@@ -1,5 +1,7 @@
 const std = @import("std");
 const ascii = std.ascii;
+const time = std.time;
+const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -9,6 +11,7 @@ const rl = @import("raylib");
 const main = @import("main.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
+const windows = @import("windows.zig");
 const draw = @import("draw.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
@@ -22,6 +25,10 @@ new_bookmark: ?struct {
     path: []const u8,
     name: TextBox(.text, clay.id("NewBookmarkInput"), clay.id("NewBookmarkInputSubmit")),
 },
+drives: if (main.is_windows)
+    struct { data: main.ArrayList(windows.DrivesIterator.Drive), state: union(enum) { shown: u32, hidden } }
+else
+    void,
 width: usize,
 dragging: bool,
 
@@ -42,11 +49,14 @@ pub const Message = union(enum) {
 pub const widths = .{ .min = 200, .max = 350, .default = 250, .cutoff = 500 };
 pub const width_handle_id = clay.id("ShortcutsWidthHandle");
 const bookmark_height = 32;
+const gap_between = 8;
+const drives_refresh_interval = 20 * time.ms_per_s;
 
 pub const init = Shortcuts{
     .bookmarks = .empty,
     .show_bookmarks = true,
     .new_bookmark = null,
+    .drives = if (main.is_windows) .{ .data = .empty, .state = .{ .shown = 0 } } else {},
     .width = widths.default,
     .dragging = false,
 };
@@ -61,10 +71,21 @@ pub fn deinit(shortcuts: *Shortcuts) void {
         new_bookmark.name.deinit();
         main.alloc.free(new_bookmark.path);
     }
+    if (main.is_windows) shortcuts.drives.data.deinit(main.alloc);
 }
 
 pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
+    if (main.is_windows) switch (shortcuts.drives.state) {
+        .shown => |*timer| {
+            if (timer.* == 0) try shortcuts.assignDriveData();
+            timer.* +|= @intFromFloat(rl.getFrameTime() * 1000);
+            if (timer.* > drives_refresh_interval) timer.* = 0;
+        },
+        .hidden => {},
+    };
+
     if (shortcuts.new_bookmark != null) shortcuts.show_bookmarks = true;
+
     if (clay.pointerOver(clay.id("Shortcuts"))) {
         if (input.clicked(.left) and clay.pointerOver(clay.id("BookmarksCollapse"))) {
             shortcuts.show_bookmarks = shortcuts.new_bookmark != null or !shortcuts.show_bookmarks;
@@ -72,12 +93,31 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
             if (input.clicked(.left) and clay.pointerOver(clay.idi("BookmarkDelete", @intCast(i)))) {
                 main.alloc.free(bookmark.name);
                 _ = shortcuts.bookmarks.orderedRemove(i);
+                tooltip.disable();
                 return .{ .bookmark_deleted = bookmark.path };
             }
             if (clay.pointerOver(clay.idi("Bookmark", @intCast(i)))) {
                 if (input.clicked(.left)) return .{ .open = bookmark.path };
-                if (tooltip.update(input)) |writer| {
-                    try writer.writeAll(bookmark.path);
+                if (tooltip.update(input)) |writer| try writer.writeAll(bookmark.path);
+            }
+        }
+
+        if (main.is_windows) {
+            if (input.clicked(.left) and clay.pointerOver(clay.id("DrivesCollapse"))) {
+                shortcuts.drives.state = switch (shortcuts.drives.state) {
+                    .shown => .hidden,
+                    .hidden => .{ .shown = 0 },
+                };
+            } else for (shortcuts.drives.data.items, 0..) |*drive, i| {
+                if (clay.pointerOver(clay.idi("Drive", @intCast(i)))) {
+                    if (input.clicked(.left)) return .{ .open = &drive.path };
+                    if (tooltip.update(input)) |writer| {
+                        try fmt.format(
+                            writer,
+                            "{:.2} free, {:.2} total",
+                            .{ fmt.fmtIntSizeBin(drive.free_space), fmt.fmtIntSizeBin(drive.total_space) },
+                        );
+                    }
                 }
             }
         }
@@ -113,6 +153,7 @@ pub fn render(shortcuts: Shortcuts) void {
             .padding = .{ .left = 16, .right = 8, .top = 32, .bottom = 16 },
             .sizing = .{ .width = .fixed(@floatFromInt(shortcuts.width)) },
             .layout_direction = .top_to_bottom,
+            .child_gap = gap_between,
         },
         .scroll = .{ .vertical = true, .horizontal = true },
     })({
@@ -122,7 +163,7 @@ pub fn render(shortcuts: Shortcuts) void {
                 .layout = .{
                     .sizing = .grow(.{}),
                     .layout_direction = .top_to_bottom,
-                    .child_gap = 12,
+                    .child_gap = gap_between,
                 },
             })({
                 clay.ui()(.{
@@ -151,9 +192,18 @@ pub fn render(shortcuts: Shortcuts) void {
                     })({});
                 });
 
+                const bookmark_padding_y = 8;
                 const bookmark_layout = clay.Config.Layout{
-                    .padding = .{ .left = 8, .right = 16, .top = 8, .bottom = 8 },
-                    .sizing = .{ .width = .grow(.{}), .height = .fit(.{ .min = bookmark_height + 16 }) },
+                    .padding = .{
+                        .left = 8,
+                        .right = 16,
+                        .top = bookmark_padding_y,
+                        .bottom = bookmark_padding_y,
+                    },
+                    .sizing = .{
+                        .width = .grow(.{}),
+                        .height = .fit(.{ .min = bookmark_height + bookmark_padding_y * 2 }),
+                    },
                     .child_alignment = .{ .y = .center },
                     .child_gap = 12,
                 };
@@ -202,6 +252,70 @@ pub fn render(shortcuts: Shortcuts) void {
                 };
             });
         }
+
+        if (main.is_windows) {
+            clay.ui()(.{
+                .id = clay.id("Drives"),
+                .layout = .{
+                    .sizing = .grow(.{}),
+                    .layout_direction = .top_to_bottom,
+                    .child_gap = gap_between,
+                },
+            })({
+                clay.ui()(.{
+                    .id = clay.id("DrivesCollapse"),
+                    .layout = .{
+                        .padding = .all(8),
+                        .sizing = .{ .width = .grow(.{}) },
+                    },
+                    .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
+                    .corner_radius = draw.rounded,
+                })({
+                    draw.pointer();
+                    draw.textEx(.roboto, .sm, "Drives", themes.current.dim_text, null);
+                    clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
+                    clay.ui()(.{
+                        .layout = .{
+                            .sizing = .fixed(16),
+                        },
+                        .image = .{
+                            .image_data = switch (shortcuts.drives.state) {
+                                .shown => &resources.images.tri_up,
+                                .hidden => &resources.images.tri_down,
+                            },
+                            .source_dimensions = .square(16),
+                        },
+                    })({});
+                });
+
+                if (shortcuts.drives.state == .shown) {
+                    for (shortcuts.drives.data.items, 0..) |*drive, i| {
+                        clay.ui()(.{
+                            .id = clay.idi("Drive", @intCast(i)),
+                            .layout = .{
+                                .padding = .{ .left = 8, .top = 8, .bottom = 8 },
+                                .sizing = .{ .width = .grow(.{}) },
+                                .child_alignment = .{ .y = .center },
+                            },
+                            .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.bg,
+                            .corner_radius = draw.rounded,
+                        })({
+                            draw.pointer();
+                            if (drive.type) |drive_type| {
+                                draw.text(drive_type);
+                                draw.text(" (");
+                                draw.text(drive.path[0..2]);
+                                draw.text(")");
+                            } else {
+                                draw.text(drive.path[0..2]);
+                            }
+                        });
+                    }
+                }
+            });
+        } else {
+            // TODO posix shortcuts (mounts?)
+        }
     });
 }
 
@@ -238,9 +352,18 @@ pub fn toggleBookmark(shortcuts: *Shortcuts, path: []const u8) Error!void {
     if (shortcuts.new_bookmark == null) {
         const dupe_path = try main.alloc.dupe(u8, path);
         errdefer main.alloc.free(dupe_path);
+        var name = fs.path.basename(path);
+        if (name.len == 0) name = path;
         shortcuts.new_bookmark = .{
             .path = dupe_path,
-            .name = try .init(fs.path.basename(path), .selected),
+            .name = try .init(name, .selected),
         };
     }
+}
+
+fn assignDriveData(shortcuts: *Shortcuts) Error!void {
+    if (!main.is_windows) return;
+    shortcuts.drives.data.clearRetainingCapacity();
+    var drives_iter = windows.DrivesIterator.init();
+    while (drives_iter.next()) |drive| try shortcuts.drives.data.append(main.alloc, drive);
 }

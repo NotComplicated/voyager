@@ -33,7 +33,7 @@ const min_width = 240;
 const min_height = 320;
 const fps = .{ .focused = 0, .unfocused = 15 };
 const scroll_speed = 5;
-const mem_scale = 16;
+const mem_scale = 8;
 const max_elem_count = mem_scale * 8192; // 8192 is the default clay max elem count
 
 var debug_alloc = heap.DebugAllocator(.{ .verbose_log = true }).init;

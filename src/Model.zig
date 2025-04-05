@@ -104,7 +104,7 @@ pub fn update(model: *Model, input: Input) Error!void {
 
     if (try model.shortcuts.update(input)) |message| switch (message) {
         .open => |path| {
-            const new_tab = try Tab.init(path, true);
+            const new_tab = try Tab.init(path, model.shortcuts.isBookmarked(path));
             model.currTab().deinit();
             model.currTab().* = new_tab;
             return;

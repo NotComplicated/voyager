@@ -191,6 +191,7 @@ var file_types = std.StaticStringMapWithEql(
 const container_id = clay.id("EntriesContainer");
 const entries_id = clay.id("Entries");
 
+const default_entry_cap = 256;
 const ext_len = 6;
 const char_px_width = 10; // not monospaced font, so this is just an approximation
 const entries_y_offset = 74 + Model.row_height + Model.tabs_height;
@@ -278,8 +279,6 @@ fn printDate(millis: u64, writer: anytype) Error!void {
 }
 
 pub fn init() Error!Entries {
-    const default_entry_cap = 128;
-
     var names = try @FieldType(Entries, "names").initCapacity(main.alloc, default_entry_cap * 8);
     errdefer names.deinit(main.alloc);
     var sizes = try @FieldType(Entries, "sizes").initCapacity(main.alloc, default_entry_cap);
@@ -474,6 +473,7 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
 
 pub fn render(entries: Entries, left_margin: usize) void {
     const width: usize = @intCast(rl.getScreenWidth());
+    const container_pad = 10;
     const cutoff_start = 195 + left_margin;
     const max_name_len = if (entries.new_item != null) @max(min_new_item_len, entries.max_name_len) else entries.max_name_len;
     const name_chars: usize = @max(@min(max_name_len, max_name_chars), min_name_chars);
@@ -484,8 +484,6 @@ pub fn render(entries: Entries, left_margin: usize) void {
         .child_alignment = .{ .y = .center },
         .child_gap = 4,
     };
-
-    const container_pad = 10;
 
     clay.ui()(.{
         .id = container_id,

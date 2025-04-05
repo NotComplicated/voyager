@@ -61,6 +61,41 @@ pub const RecycleMeta = struct {
     restore_path: [:0]const u8,
 };
 
+pub const DrivesIterator = struct {
+    iter: Set.Iterator(.{}),
+
+    const Set = std.StaticBitSet(@bitSizeOf(@TypeOf(GetLogicalDrives())));
+    pub const Drive = struct {
+        path: [3]u8,
+        free_space: u64,
+        total_space: u64,
+        type: ?[]const u8,
+    };
+
+    pub fn init() @This() {
+        return .{ .iter = (Set{ .mask = GetLogicalDrives() }).iterator(.{}) };
+    }
+
+    pub fn next(self: *@This()) ?Drive {
+        const letter: u8 = @intCast('A' + (self.iter.next() orelse return null));
+        const path: [3:0]u8 = .{ letter, ':', '\\' };
+        var disk_space: DISK_SPACE_INFORMATION = undefined;
+        const free_space, const total_space = if (GetDiskSpaceInformationA(&path, &disk_space) == 0) space: {
+            const bytes_per_au = disk_space.bytes_per_sector * disk_space.sectors_per_allocation_unit;
+            const free_space = disk_space.caller_available_allocation_units * bytes_per_au;
+            const total_space = disk_space.caller_total_allocation_units * bytes_per_au;
+            break :space .{ free_space, total_space };
+        } else .{ 0, 0 };
+
+        return .{
+            .path = path,
+            .free_space = free_space,
+            .total_space = total_space,
+            .type = GetDriveTypeA(&path).toString(),
+        };
+    }
+};
+
 const WNDPROC = @TypeOf(&newWindowProc);
 
 const SID = extern struct {
@@ -87,6 +122,44 @@ const SID_NAME_USE = enum(win.INT) {
     label,
     logon_session,
     _,
+};
+
+const DriveType = enum(win.UINT) {
+    unknown = 0,
+    no_root_dir,
+    removable,
+    fixed,
+    remote,
+    cdrom,
+    ramdisk,
+    _,
+
+    pub fn toString(drive_type: DriveType) ?[]const u8 {
+        return switch (drive_type) {
+            .removable => "USB",
+            .fixed => "Disk",
+            .remote => "Network",
+            .cdrom => "CD",
+            .ramdisk => "RAM",
+            else => null,
+        };
+    }
+};
+
+const DISK_SPACE_INFORMATION = extern struct {
+    actual_total_allocation_units: win.ULONGLONG,
+    actual_available_allocation_units: win.ULONGLONG,
+    actual_pool_unavailable_allocation_units: win.ULONGLONG,
+    caller_total_allocation_units: win.ULONGLONG,
+    caller_available_allocation_units: win.ULONGLONG,
+    caller_pool_unavailable_allocation_units: win.ULONGLONG,
+    used_allocation_units: win.ULONGLONG,
+    total_reserved_allocation_units: win.ULONGLONG,
+    volume_storage_reserve_allocation_units: win.ULONGLONG,
+    available_committed_allocation_units: win.ULONGLONG,
+    pool_available_allocation_units: win.ULONGLONG,
+    sectors_per_allocation_unit: win.DWORD,
+    bytes_per_sector: win.DWORD,
 };
 
 const meta_header = &(.{0x02} ++ .{0x00} ** 7);
@@ -429,3 +502,9 @@ extern fn GetWindowLongPtrW(wnd: win.HWND, index: win.INT) callconv(.winapi) win
 extern fn CallWindowProcW(prev_wnd_func: WNDPROC, win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) callconv(.winapi) win.LRESULT;
 
 extern fn LocalFree(mem: win.HLOCAL) callconv(.winapi) ?win.HLOCAL;
+
+extern fn GetLogicalDrives() callconv(.winapi) win.DWORD;
+
+extern fn GetDiskSpaceInformationA(root_path: ?win.LPCSTR, disk_space_info: *DISK_SPACE_INFORMATION) callconv(.winapi) win.HRESULT;
+
+extern fn GetDriveTypeA(root_path_name: ?win.LPCSTR) callconv(.winapi) DriveType;

@@ -27,6 +27,10 @@ pub fn deinit() void {
     tooltip.msg.deinit(main.alloc);
 }
 
+pub fn disable() void {
+    tooltip.state = .disabled;
+}
+
 pub fn update(input: Input) ?@TypeOf(tooltip.msg).Writer {
     const reset = @TypeOf(tooltip.state){ .delay = .{ .timer = 0, .pos = input.mouse_pos } };
     switch (tooltip.state) {
