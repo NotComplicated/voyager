@@ -41,8 +41,11 @@ pub const alloc = if (is_debug) debug_alloc.allocator() else heap.smp_allocator;
 
 const data_dirname = "voyagerfm";
 const temp_dirname = "temp";
+const config_name = "config.json";
 pub var data_path: []const u8 = undefined;
 pub var temp_path: []const u8 = undefined;
+pub var config_path: []const u8 = undefined;
+pub var config_temp_path: []const u8 = undefined;
 
 const rl_config = rl.ConfigFlags{
     .vsync_hint = true,
@@ -105,6 +108,10 @@ pub fn main() !void {
     temp_path = try fs.path.join(alloc, &.{ data_path, temp_dirname });
     defer alloc.free(temp_path);
     try mkdir(temp_path);
+    config_path = try fs.path.join(alloc, &.{ data_path, config_name });
+    defer alloc.free(config_path);
+    config_temp_path = try fs.path.join(alloc, &.{ temp_path, config_name });
+    defer alloc.free(config_path);
 
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());

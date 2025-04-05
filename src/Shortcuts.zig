@@ -1,5 +1,6 @@
 const std = @import("std");
 const ascii = std.ascii;
+const json = std.json;
 const time = std.time;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -12,6 +13,7 @@ const main = @import("main.zig");
 const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const windows = @import("windows.zig");
+const config = @import("config.zig");
 const draw = @import("draw.zig");
 const tooltip = @import("tooltip.zig");
 const Input = @import("Input.zig");
@@ -78,7 +80,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
     if (main.is_windows) switch (shortcuts.drives.state) {
         .shown => |*timer| {
             if (timer.* == 0) try shortcuts.assignDriveData();
-            timer.* +|= @intFromFloat(rl.getFrameTime() * 1000);
+            timer.* +|= @max(@as(@TypeOf(timer.*), @intFromFloat(rl.getFrameTime() * 1000)), 1);
             if (timer.* > drives_refresh_interval) timer.* = 0;
         },
         .hidden => {},
@@ -317,6 +319,51 @@ pub fn render(shortcuts: Shortcuts) void {
             // TODO posix shortcuts (mounts?)
         }
     });
+}
+
+pub fn save(shortcuts: Shortcuts, writer: *config.Writer) !void {
+    try writer.write().beginArray();
+    for (shortcuts.bookmarks.items) |bookmark| {
+        try writer.write().write(.{
+            .name = bookmark.name,
+            .path = bookmark.path,
+        });
+    }
+    try writer.write().endArray();
+}
+
+pub fn load(shortcuts: *Shortcuts, reader: *config.Reader) !void {
+    const result = try reader.read();
+    defer result.deinit();
+    const object = switch (result.value) {
+        .object => |object| object,
+        else => return Error.InvalidFormat,
+    };
+    var kv_iter = object.iterator();
+    while (kv_iter.next()) |kv| {
+        if (mem.eql(u8, kv.key_ptr.*, "bookmarks")) {
+            const array = switch (kv.value_ptr.*) {
+                .array => |array| array,
+                else => return Error.InvalidFormat,
+            };
+            shortcuts.bookmarks.clearRetainingCapacity();
+            for (array.items) |value| {
+                const bookmark_result = try json.parseFromValue(
+                    struct { name: []const u8, path: []const u8 },
+                    main.alloc,
+                    value,
+                    .{},
+                );
+                defer bookmark_result.deinit();
+
+                shortcuts.bookmarks.append(main.alloc, .{
+                    .icon = &resources.images.bookmarked,
+                    .name = try main.alloc.dupe(u8, bookmark_result.name),
+                    .path = try main.alloc.dupe(u8, bookmark_result.path),
+                });
+            }
+        }
+    }
 }
 
 pub fn isActive(shortcuts: Shortcuts) bool {
