@@ -210,11 +210,13 @@ pub fn update(model: *Model, input: Input) Error!void {
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
+                if (input.ctrl) try model.newTab();
                 try model.currTab().openDir(name);
                 model.updateTabsBookmarked(model.currTab().dir());
             }
         },
         .open_parent_dir => {
+            if (input.ctrl) try model.newTab();
             try model.currTab().openParentDir();
             model.updateTabsBookmarked(model.currTab().dir());
         },
@@ -411,10 +413,10 @@ pub fn render(model: Model) void {
 }
 
 pub fn save(model: Model, writer: *config.Writer) !void {
-    try writer.write().beginObject();
-    try writer.write().objectField("shortcuts");
+    try writer.beginObject();
+    try writer.objectField("shortcuts");
     try model.shortcuts.save(writer);
-    try writer.write().endObject();
+    try writer.endObject();
 }
 
 pub fn load(model: *Model, config_json: json.Value) !void {

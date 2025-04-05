@@ -1,5 +1,6 @@
 const std = @import("std");
 const process = std.process;
+const debug = std.debug;
 const heap = std.heap;
 const log = std.log;
 const fs = std.fs;
@@ -44,10 +45,10 @@ pub const alloc = if (is_debug) debug_alloc.allocator() else heap.smp_allocator;
 const data_dirname = "voyagerfm";
 const temp_dirname = "temp";
 const config_name = "config.json";
-pub var data_path: []const u8 = undefined;
-pub var temp_path: []const u8 = undefined;
-pub var config_path: []const u8 = undefined;
-pub var config_temp_path: []const u8 = undefined;
+pub var data_path: [:0]const u8 = undefined;
+pub var temp_path: [:0]const u8 = undefined;
+pub var config_path: [:0]const u8 = undefined;
+pub var config_temp_path: [:0]const u8 = undefined;
 
 const rl_config = rl.ConfigFlags{
     .vsync_hint = true,
@@ -56,10 +57,6 @@ const rl_config = rl.ConfigFlags{
 };
 
 pub const double_click_delay = 300;
-
-pub fn convertVector(v: rl.Vector2) clay.Vector2 {
-    return .{ .x = v.x, .y = v.y };
-}
 
 var focused = true;
 
@@ -71,6 +68,10 @@ pub fn getBounds(id: clay.Id) ?clay.BoundingBox {
     } else {
         return data.boundingBox;
     }
+}
+
+pub fn convertVector(v: rl.Vector2) clay.Vector2 {
+    return .{ .x = v.x, .y = v.y };
 }
 
 const GlfwWindow = opaque {};
@@ -104,15 +105,19 @@ pub fn main() !void {
     defer args.deinit();
     _ = args.skip();
 
-    data_path = try fs.getAppDataDir(alloc, data_dirname);
+    data_path = data_path: {
+        const data_path_no_z = try fs.getAppDataDir(alloc, data_dirname);
+        defer alloc.free(data_path_no_z);
+        break :data_path try alloc.dupeZ(u8, data_path_no_z);
+    };
     defer alloc.free(data_path);
     try mkdir(data_path);
-    temp_path = try fs.path.join(alloc, &.{ data_path, temp_dirname });
+    temp_path = try fs.path.joinZ(alloc, &.{ data_path, temp_dirname });
     defer alloc.free(temp_path);
     try mkdir(temp_path);
-    config_path = try fs.path.join(alloc, &.{ data_path, config_name });
+    config_path = try fs.path.joinZ(alloc, &.{ data_path, config_name });
     defer alloc.free(config_path);
-    config_temp_path = try fs.path.join(alloc, &.{ temp_path, config_name });
+    config_temp_path = try fs.path.joinZ(alloc, &.{ temp_path, config_name });
     defer alloc.free(config_temp_path);
 
     clay.setMaxElementCount(max_elem_count);
@@ -188,10 +193,12 @@ fn frame(model: *Model) void {
             return;
         },
         else => {
-            if (is_debug) if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+            if (is_debug) if (@errorReturnTrace()) |trace| debug.dumpStackTrace(trace.*);
             alert.update(err);
         },
     };
+
+    config.update(model.*);
 
     // Render phase
 

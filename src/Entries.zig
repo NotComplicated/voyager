@@ -414,6 +414,22 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                     }
                 },
 
+                .enter => {
+                    for (kinds()) |kind| {
+                        var names = std.ArrayList(u8).init(main.alloc);
+                        defer names.deinit();
+                        var sorted_iter = entries.sorted(kind, &.{ .selected, .name });
+                        while (sorted_iter.next()) |entry| {
+                            if (entry.selected) {
+                                try names.appendSlice(entry.name);
+                                try names.append('\x00');
+                            }
+                        }
+                        if (names.items.len == 0) continue;
+                        return .{ .open = .{ .kind = kind, .names = try names.toOwnedSlice() } };
+                    }
+                },
+
                 .delete => {
                     for (kinds()) |kind| {
                         var sorted_iter = entries.sorted(kind, &.{ .name, .selected });

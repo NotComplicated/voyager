@@ -95,6 +95,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
             if (input.clicked(.left) and clay.pointerOver(clay.idi("BookmarkDelete", @intCast(i)))) {
                 main.alloc.free(bookmark.name);
                 _ = shortcuts.bookmarks.orderedRemove(i);
+                config.save();
                 tooltip.disable();
                 return .{ .bookmark_deleted = bookmark.path };
             }
@@ -140,6 +141,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
                     .path = new_bookmark.path,
                     .icon = &resources.images.bookmarked,
                 });
+                config.save();
                 return .{ .bookmark_created = new_bookmark.path };
             },
         };
@@ -322,17 +324,17 @@ pub fn render(shortcuts: Shortcuts) void {
 }
 
 pub fn save(shortcuts: Shortcuts, writer: *config.Writer) !void {
-    try writer.write().beginObject();
-    try writer.write().objectField("bookmarks");
-    try writer.write().beginArray();
+    try writer.beginObject();
+    try writer.objectField("bookmarks");
+    try writer.beginArray();
     for (shortcuts.bookmarks.items) |bookmark| {
-        try writer.write().write(.{
+        try writer.write(.{
             .name = bookmark.name,
             .path = bookmark.path,
         });
     }
-    try writer.write().endArray();
-    try writer.write().endObject();
+    try writer.endArray();
+    try writer.endObject();
 }
 
 pub fn load(shortcuts: *Shortcuts, config_json: json.Value) !void {
@@ -395,6 +397,7 @@ pub fn toggleBookmark(shortcuts: *Shortcuts, path: []const u8) Error!void {
             main.alloc.free(bookmark.name);
             main.alloc.free(bookmark.path);
             _ = shortcuts.bookmarks.orderedRemove(i);
+            config.save();
             return;
         }
     }
