@@ -1,5 +1,6 @@
 const std = @import("std");
 const process = std.process;
+const json = std.json;
 const math = std.math;
 const mem = std.mem;
 const fs = std.fs;
@@ -9,6 +10,7 @@ const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const draw = @import("draw.zig");
 const windows = @import("windows.zig");
+const config = @import("config.zig");
 const modal = @import("modal.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
@@ -406,6 +408,21 @@ pub fn render(model: Model) void {
 
         model.currTab().render(if (width > Shortcuts.widths.cutoff) model.shortcuts else null);
     });
+}
+
+pub fn save(model: Model, writer: *config.Writer) !void {
+    try writer.write().beginObject();
+    try writer.write().objectField("shortcuts");
+    try model.shortcuts.save(writer);
+    try writer.write().endObject();
+}
+
+pub fn load(model: *Model, config_json: json.Value) !void {
+    const object = switch (config_json) {
+        .object => |object| object,
+        else => return error.InvalidFormat,
+    };
+    try model.shortcuts.load(object.get("shortcuts") orelse return error.InvalidFormat);
 }
 
 fn currTab(model: anytype) if (@TypeOf(model) == *Model) *Tab else *const Tab {

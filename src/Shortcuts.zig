@@ -322,6 +322,8 @@ pub fn render(shortcuts: Shortcuts) void {
 }
 
 pub fn save(shortcuts: Shortcuts, writer: *config.Writer) !void {
+    try writer.write().beginObject();
+    try writer.write().objectField("bookmarks");
     try writer.write().beginArray();
     for (shortcuts.bookmarks.items) |bookmark| {
         try writer.write().write(.{
@@ -330,21 +332,20 @@ pub fn save(shortcuts: Shortcuts, writer: *config.Writer) !void {
         });
     }
     try writer.write().endArray();
+    try writer.write().endObject();
 }
 
-pub fn load(shortcuts: *Shortcuts, reader: *config.Reader) !void {
-    const result = try reader.read();
-    defer result.deinit();
-    const object = switch (result.value) {
+pub fn load(shortcuts: *Shortcuts, config_json: json.Value) !void {
+    const object = switch (config_json) {
         .object => |object| object,
-        else => return Error.InvalidFormat,
+        else => return error.InvalidFormat,
     };
     var kv_iter = object.iterator();
     while (kv_iter.next()) |kv| {
         if (mem.eql(u8, kv.key_ptr.*, "bookmarks")) {
             const array = switch (kv.value_ptr.*) {
                 .array => |array| array,
-                else => return Error.InvalidFormat,
+                else => return error.InvalidFormat,
             };
             shortcuts.bookmarks.clearRetainingCapacity();
             for (array.items) |value| {
@@ -355,11 +356,12 @@ pub fn load(shortcuts: *Shortcuts, reader: *config.Reader) !void {
                     .{},
                 );
                 defer bookmark_result.deinit();
+                const bookmark = bookmark_result.value;
 
-                shortcuts.bookmarks.append(main.alloc, .{
+                try shortcuts.bookmarks.append(main.alloc, .{
                     .icon = &resources.images.bookmarked,
-                    .name = try main.alloc.dupe(u8, bookmark_result.name),
-                    .path = try main.alloc.dupe(u8, bookmark_result.path),
+                    .name = try main.alloc.dupe(u8, bookmark.name),
+                    .path = try main.alloc.dupe(u8, bookmark.path),
                 });
             }
         }

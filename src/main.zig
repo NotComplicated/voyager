@@ -1,6 +1,7 @@
 const std = @import("std");
 const process = std.process;
 const heap = std.heap;
+const log = std.log;
 const fs = std.fs;
 
 const clay = @import("clay");
@@ -11,6 +12,7 @@ const windows = @import("windows.zig");
 const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const resources = @import("resources.zig");
+const config = @import("config.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
 const modal = @import("modal.zig");
@@ -111,7 +113,7 @@ pub fn main() !void {
     config_path = try fs.path.join(alloc, &.{ data_path, config_name });
     defer alloc.free(config_path);
     config_temp_path = try fs.path.join(alloc, &.{ temp_path, config_name });
-    defer alloc.free(config_path);
+    defer alloc.free(config_temp_path);
 
     clay.setMaxElementCount(max_elem_count);
     const arena = clay.createArena(alloc, mem_scale * clay.minMemorySize());
@@ -144,6 +146,15 @@ pub fn main() !void {
 
     var model = try Model.init(&args);
     defer model.deinit();
+
+    var config_error: ?anyerror = null;
+    if (config.read()) |parsed_config| {
+        defer parsed_config.deinit();
+        model.load(parsed_config.value) catch |err| {
+            config_error = err;
+        };
+    } else |err| if (err != error.FileNotFound) config_error = err;
+    if (config_error) |err| if (is_debug) log.err("Failed to load config: {}", .{err});
 
     while (!rl.windowShouldClose()) frame(&model);
 }

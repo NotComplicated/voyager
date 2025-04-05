@@ -39,27 +39,10 @@ pub const Writer = struct {
     }
 };
 
-pub const Reader = struct {
-    config_file: fs.File,
-    json_reader: JsonReader,
-
-    pub const JsonReader = json.Reader(reader_buffer_size, fs.File.Reader);
-
-    const reader_buffer_size = 2048;
-
-    pub fn init() !Reader {
-        var reader: Reader = undefined;
-        reader.config_file = try fs.openFileAbsolute(main.config_path, .{});
-        reader.json_reader = JsonReader.init(main.alloc, reader.config_file.reader());
-        return reader;
-    }
-
-    pub fn deinit(reader: *Reader) void {
-        reader.json_reader.deinit();
-        reader.config_file.close();
-    }
-
-    pub fn read(reader: *Reader) !json.Parsed(json.Value) {
-        return json.parseFromTokenSource(json.Value, main.alloc, &reader.json_reader, .{});
-    }
-};
+pub fn read() !json.Parsed(json.Value) {
+    const config_file = try fs.openFileAbsolute(main.config_path, .{});
+    defer config_file.close();
+    var reader = json.reader(main.alloc, config_file.reader());
+    defer reader.deinit();
+    return json.parseFromTokenSource(json.Value, main.alloc, &reader, .{});
+}
