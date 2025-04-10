@@ -625,6 +625,8 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             themes.current.selected
                         else if (clay.pointerOver(entry_id))
                             themes.current.hovered
+                        else if (sorted_index % 2 == 0)
+                            themes.current.base_light
                         else
                             themes.current.base,
                         .corner_radius = draw.rounded,

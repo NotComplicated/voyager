@@ -72,15 +72,15 @@ pub fn update(model: *Model, input: Input) Error!void {
 
     if (clay.pointerOver(new_tab_id) and input.clicked(.left)) try model.newTab();
 
-    for (0..model.tabs.items.len) |index| {
-        const tab_index: TabIndex = @intCast(index);
-        if (clay.pointerOver(close_tab_ids[index]) and input.clicked(.left)) {
+    for (0..model.tabs.items.len) |i| {
+        const tab_index: TabIndex = @intCast(i);
+        if (clay.pointerOver(close_tab_ids[i]) and input.clicked(.left)) {
             try model.closeTab(tab_index);
             return;
-        } else if (clay.pointerOver(tab_ids[index])) {
+        } else if (clay.pointerOver(tab_ids[i])) {
             if (input.clicked(.left)) {
                 model.curr_tab = tab_index;
-                const offset = input.offset(tab_ids[index]) orelse return;
+                const offset = input.offset(tab_ids[i]) orelse return;
                 model.tab_drag = .{
                     .x_pos = input.mouse_pos.x,
                     .tab_offset = offset.x,
@@ -257,9 +257,9 @@ pub fn render(model: Model) void {
         })({
             const tab_width = @min(width / model.tabs.items.len, max_tab_width);
 
-            for (model.tabs.items, 0..) |tab, index| {
-                const selected = index == model.curr_tab;
-                const hovered = !selected and clay.pointerOver(tab_ids[index]);
+            for (model.tabs.items, 0..) |tab, i| {
+                const selected = i == model.curr_tab;
+                const hovered = !selected and clay.pointerOver(tab_ids[i]);
 
                 const floating = if (selected) if (model.tab_drag) |dragging| floating: {
                     clay.ui()(.{
@@ -296,7 +296,7 @@ pub fn render(model: Model) void {
                 } else null else null;
 
                 clay.ui()(.{
-                    .id = tab_ids[index],
+                    .id = tab_ids[i],
                     .layout = .{
                         .sizing = .{
                             .width = .fixed(@floatFromInt(tab_width)),
@@ -343,7 +343,7 @@ pub fn render(model: Model) void {
                         clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
                         clay.ui()(.{
-                            .id = close_tab_ids[index],
+                            .id = close_tab_ids[i],
                             .layout = .{
                                 .sizing = .{
                                     .width = .fixed(9),

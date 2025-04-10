@@ -61,16 +61,17 @@ pub const RecycleMeta = struct {
     restore_path: [:0]const u8,
 };
 
+pub const Drive = struct {
+    path: [3]u8,
+    free_space: u64,
+    total_space: u64,
+    type: ?[]const u8,
+};
+
 pub const DrivesIterator = struct {
     iter: Set.Iterator(.{}),
 
     const Set = std.StaticBitSet(@bitSizeOf(@TypeOf(GetLogicalDrives())));
-    pub const Drive = struct {
-        path: [3]u8,
-        free_space: u64,
-        total_space: u64,
-        type: ?[]const u8,
-    };
 
     pub fn init() @This() {
         return .{ .iter = (Set{ .mask = GetLogicalDrives() }).iterator(.{}) };

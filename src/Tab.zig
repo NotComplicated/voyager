@@ -382,6 +382,7 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
 
                 tab.entries.render(shortcuts.width + shortcuts_width_handle_width);
             } else {
+                clay.ui()(.{ .scroll = .{ .vertical = true } })({}); // fixes a strange bug where entries scrolling stops working
                 tab.entries.render(0);
             }
         });
