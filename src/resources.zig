@@ -85,6 +85,8 @@ const image_filenames = .{
     .checkmark = "checkmark.png",
     .not_bookmarked = "not-bookmarked.png",
     .bookmarked = "bookmarked.png",
+    .expand = "expand.png",
+    .collapse = "collapse.png",
 };
 
 pub var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;

@@ -96,14 +96,6 @@ pub fn update(model: *Model, input: Input) Error!void {
         }
     }
 
-    if (clay.pointerOver(Shortcuts.width_handle_id)) if (input.action) |action| switch (action) {
-        .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
-            .pressed => model.shortcuts.dragging = true,
-            .down, .released => {}, // handled down below
-        },
-        else => {},
-    };
-
     if (try model.shortcuts.update(input)) |message| switch (message) {
         .open => |path| {
             const new_tab = try Tab.init(path, model.shortcuts.isBookmarked(path));
@@ -111,59 +103,52 @@ pub fn update(model: *Model, input: Input) Error!void {
             model.currTab().* = new_tab;
             return;
         },
+
         .bookmark_created => |path| {
             model.updateTabsBookmarked(path);
             return;
         },
+
         .bookmark_deleted => |path| {
             defer main.alloc.free(path);
             model.updateTabsBookmarked(path);
             return;
         },
     };
+
     if (model.shortcuts.isActive()) return;
 
     if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
             .pressed => {},
-            .down => {
-                if (model.tab_drag) |*dragging| {
-                    if (dragging.dimming == 0 or dragging.dimming == 100) {
-                        dragging.dist += @abs(dragging.x_pos - input.mouse_pos.x);
-                        dragging.x_pos = input.mouse_pos.x;
-                    }
 
-                    const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
-                    const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
-                    const pos: usize = @intFromFloat(@max(0, dragging.x_pos - dragging.tab_offset + (tab_width / 2)) / tab_width);
-                    if (pos < model.tabs.items.len and pos != model.curr_tab) {
-                        mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
-                        model.curr_tab = @intCast(pos);
-                    }
-
-                    if (model.tabs.items.len > 1) {
-                        const onscreen = -30 < input.mouse_pos.x and
-                            input.mouse_pos.x <= @as(f32, @floatFromInt(rl.getScreenWidth())) + 30 and
-                            -50 < input.mouse_pos.y and
-                            input.mouse_pos.y <= @as(f32, @floatFromInt(rl.getScreenHeight())) + 30;
-                        const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
-                        dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
-                    }
+            .down => if (model.tab_drag) |*dragging| {
+                if (dragging.dimming == 0 or dragging.dimming == 100) {
+                    dragging.dist += @abs(dragging.x_pos - input.mouse_pos.x);
+                    dragging.x_pos = input.mouse_pos.x;
                 }
-                if (model.shortcuts.dragging) {
-                    model.shortcuts.width = math.clamp(
-                        math.lossyCast(usize, input.mouse_pos.x),
-                        Shortcuts.widths.min,
-                        Shortcuts.widths.max,
-                    );
+
+                const width: usize = @intCast(rl.getScreenWidth() -| tabs_height);
+                const tab_width: f32 = @floatFromInt(@min(width / model.tabs.items.len, max_tab_width));
+                const pos: usize = @intFromFloat(@max(0, dragging.x_pos - dragging.tab_offset + (tab_width / 2)) / tab_width);
+                if (pos < model.tabs.items.len and pos != model.curr_tab) {
+                    mem.swap(Tab, model.currTab(), &model.tabs.items[pos]);
+                    model.curr_tab = @intCast(pos);
+                }
+
+                if (model.tabs.items.len > 1) {
+                    const onscreen = -30 < input.mouse_pos.x and
+                        input.mouse_pos.x <= @as(f32, @floatFromInt(rl.getScreenWidth())) + 30 and
+                        -50 < input.mouse_pos.y and
+                        input.mouse_pos.y <= @as(f32, @floatFromInt(rl.getScreenHeight())) + 30;
+                    const dim = math.lossyCast(i8, 500 * @as(f32, if (onscreen) -1 else 1) * rl.getFrameTime());
+                    dragging.dimming = math.clamp(dragging.dimming +| dim, 0, 100);
                 }
             },
-            .released => {
-                if (model.tab_drag) |dragging| {
-                    if (dragging.dimming == 100) try model.popOutTab();
-                    model.tab_drag = null;
-                }
-                model.shortcuts.dragging = false;
+
+            .released => if (model.tab_drag) |dragging| {
+                if (dragging.dimming == 100) try model.popOutTab();
+                model.tab_drag = null;
             },
         },
 
@@ -179,10 +164,12 @@ pub fn update(model: *Model, input: Input) Error!void {
                 },
                 else => {},
             },
+
             .f => |f| switch (f) {
                 5 => try model.currTab().reloadEntries(),
                 else => {},
             },
+
             .tab => if (input.ctrl) {
                 const last_tab: TabIndex = @intCast(model.tabs.items.len - 1);
                 model.curr_tab = if (input.shift)
@@ -190,6 +177,7 @@ pub fn update(model: *Model, input: Input) Error!void {
                 else if (model.curr_tab == last_tab) 0 else model.curr_tab + 1;
                 return;
             },
+
             else => {},
         },
 
@@ -215,11 +203,13 @@ pub fn update(model: *Model, input: Input) Error!void {
                 model.updateTabsBookmarked(model.currTab().dir());
             }
         },
+
         .open_parent_dir => {
             if (input.ctrl) try model.newTab();
             try model.currTab().openParentDir();
             model.updateTabsBookmarked(model.currTab().dir());
         },
+
         .toggle_bookmark => |path| {
             try model.shortcuts.toggleBookmark(path);
             model.updateTabsBookmarked(path);
@@ -408,7 +398,7 @@ pub fn render(model: Model) void {
             }
         });
 
-        model.currTab().render(if (width > Shortcuts.widths.cutoff) model.shortcuts else null);
+        model.currTab().render(model.shortcuts);
     });
 }
 

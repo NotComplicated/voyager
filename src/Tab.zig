@@ -321,7 +321,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
     return null;
 }
 
-pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
+pub fn render(tab: Tab, shortcuts: Shortcuts) void {
     clay.ui()(.{
         .id = clay.id("TabContent"),
         .layout = .{
@@ -358,33 +358,8 @@ pub fn render(tab: Tab, maybe_shortcuts: ?Shortcuts) void {
             },
             .bg_color = themes.current.bg,
         })({
-            if (maybe_shortcuts) |shortcuts| {
-                shortcuts.render();
-                const shortcuts_width_handle_width = 5;
-
-                clay.ui()(.{
-                    .id = Shortcuts.width_handle_id,
-                    .layout = .{
-                        .sizing = .{
-                            .width = .fixed(shortcuts_width_handle_width),
-                            .height = .grow(.{}),
-                        },
-                    },
-                    .bg_color = if (shortcuts.dragging)
-                        themes.current.highlight
-                    else if (clay.hovered())
-                        themes.current.secondary
-                    else
-                        themes.current.bg,
-                })({
-                    draw.left_right_arrows();
-                });
-
-                tab.entries.render(shortcuts.width + shortcuts_width_handle_width);
-            } else {
-                clay.ui()(.{ .scroll = .{ .vertical = true } })({}); // fixes a strange bug where entries scrolling stops working
-                tab.entries.render(0);
-            }
+            shortcuts.render();
+            tab.entries.render(shortcuts.getWidth());
         });
     });
 }
