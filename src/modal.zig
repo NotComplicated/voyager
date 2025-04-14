@@ -151,7 +151,6 @@ pub fn update(input: Input) Error!enum { active, inactive } {
                 inline for (&values, layout.fields) |*value, field| value.* = field.value();
                 layout.callback(layout.data, values);
                 reset();
-                return .inactive;
             }
         },
     }

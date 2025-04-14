@@ -193,21 +193,21 @@ pub fn update(model: *Model, input: Input) Error!void {
             while (names_iter.next()) |name| {
                 try model.newTab();
                 try model.currTab().openDir(name);
-                model.updateTabsBookmarked(model.currTab().dir());
+                model.updateTabsBookmarked(model.currTab().directory());
                 model.curr_tab = old_tab;
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
                 if (input.ctrl) try model.newTab();
                 try model.currTab().openDir(name);
-                model.updateTabsBookmarked(model.currTab().dir());
+                model.updateTabsBookmarked(model.currTab().directory());
             }
         },
 
         .open_parent_dir => {
             if (input.ctrl) try model.newTab();
             try model.currTab().openParentDir();
-            model.updateTabsBookmarked(model.currTab().dir());
+            model.updateTabsBookmarked(model.currTab().directory());
         },
 
         .toggle_bookmark => |path| {

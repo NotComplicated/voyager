@@ -433,9 +433,10 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                 } else entries.jump(char),
 
                 .f => |f| switch (f) {
-                    2 => {
-                        // TODO rename, using entries.selection
-                        return .{ .rename = "" };
+                    2 => if (entries.selection) |selection| {
+                        const kind, const index = selection.to;
+                        const start, const end = entries.data_slices.get(kind).items(.name)[index];
+                        return .{ .rename = entries.names.items[start..end] };
                     },
                     else => {},
                 },

@@ -28,6 +28,7 @@ cwd: TextBox(.path, clay.id("CurrentDir"), null),
 cached_cwd: main.ArrayList(u8),
 del_history: if (main.is_windows) std.BoundedArray(DelEvent, max_history) else void,
 del_queue: ?[]const u8,
+rename: ?[]const u8,
 entries: Entries,
 bookmarked: bool,
 
@@ -86,6 +87,7 @@ pub fn init(path: []const u8, bookmarked: bool) Error!Tab {
         .cached_cwd = cached_cwd,
         .del_history = if (main.is_windows) .{} else {},
         .del_queue = null,
+        .rename = null,
         .entries = entries,
         .bookmarked = bookmarked,
     };
@@ -319,8 +321,30 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
             },
 
             .rename => |name| {
-                _ = name;
-                // TODO rename using modal
+                tab.rename = name;
+                const writers = modal.set(.text, Tab, tab, struct {
+                    fn f(tab_inner: *Tab, new_name: []const u8) Error!void {
+                        if (tab_inner.rename == null) return Error.Unexpected;
+                        defer tab_inner.rename = null;
+                        if (new_name.len == 0) {
+                            alert.updateFmt("No name provided.", .{});
+                            return;
+                        }
+                        var dir = fs.openDirAbsolute(tab_inner.cached_cwd.items, .{}) catch return Error.OpenDirFailure;
+                        defer dir.close();
+                        dir.rename(tab_inner.rename.?, new_name) catch {
+                            alert.updateFmt("Failed to rename '{s}' to '{s}'.", .{ tab_inner.rename.?, new_name });
+                            return;
+                        };
+                        try tab_inner.reloadEntries();
+                    }
+                }.f);
+                errdefer modal.reset();
+
+                fmt.format(writers.message, "Rename '{s}'?", .{name}) catch return Error.Unexpected;
+                writers.labels[0].writeAll("New name") catch return Error.Unexpected;
+                writers.reject.writeAll("Cancel") catch return Error.Unexpected;
+                writers.accept.writeAll("Rename") catch return Error.Unexpected;
             },
         }
     }
@@ -371,7 +395,7 @@ pub fn render(tab: Tab, shortcuts: Shortcuts) void {
     });
 }
 
-pub fn dir(tab: Tab) []const u8 {
+pub fn directory(tab: Tab) []const u8 {
     return tab.cached_cwd.items;
 }
 
