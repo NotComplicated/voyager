@@ -184,6 +184,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
                     while (names_iter.next()) |name| try tab.openFile(name);
                 },
             },
+
             .create => |create| {
                 defer {
                     tab.reloadEntries() catch {};
@@ -217,6 +218,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
                     },
                 }
             },
+
             .delete => |names| {
                 defer main.alloc.free(names);
 
@@ -314,6 +316,11 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
                     writers.reject.writeAll("Cancel") catch return Error.Unexpected;
                     writers.accept.writeAll("Delete") catch return Error.Unexpected;
                 }
+            },
+
+            .rename => |name| {
+                _ = name;
+                // TODO rename using modal
             },
         }
     }

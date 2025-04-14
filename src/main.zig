@@ -16,6 +16,7 @@ const resources = @import("resources.zig");
 const config = @import("config.zig");
 const alert = @import("alert.zig");
 const tooltip = @import("tooltip.zig");
+const menu = @import("menu.zig");
 const modal = @import("modal.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
@@ -214,5 +215,6 @@ fn frame(model: *Model) void {
     model.render();
     alert.render();
     tooltip.render();
+    menu.render();
     modal.render();
 }
