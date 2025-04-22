@@ -19,6 +19,7 @@ const Error = @import("error.zig").Error;
 const Color = win.DWORD;
 
 pub const Event = union(enum) {
+    cut,
     copy,
     paste,
     undo,

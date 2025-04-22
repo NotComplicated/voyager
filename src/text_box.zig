@@ -17,6 +17,7 @@ const themes = @import("themes.zig");
 const resources = @import("resources.zig");
 const draw = @import("draw.zig");
 const alert = @import("alert.zig");
+const menu = @import("menu.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const Error = @import("error.zig").Error;
@@ -25,6 +26,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
     return struct {
         content: main.ArrayList(u8),
         cursor: Cursor,
+        right_click_at: ?usize,
         timer: u32,
         history: std.BoundedArray(struct { content: main.ArrayList(u8), cursor: Cursor }, max_history),
         tab_complete: if (kind == .path) struct {
@@ -36,6 +38,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
         pub const empty = Self{
             .content = .empty,
             .cursor = .none,
+            .right_click_at = null,
             .timer = 0,
             .history = history: {
                 var history = @FieldType(Self, "history"){};
@@ -88,6 +91,15 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             submit: []const u8,
         };
 
+        const Menu = enum {
+            cut,
+            copy,
+            paste,
+            undo,
+            redo,
+            select_all,
+        };
+
         pub fn init(contents: []const u8, state: enum { unfocused, selected }) Error!Self {
             var content = try @FieldType(Self, "content").initCapacity(main.alloc, 256);
             errdefer content.deinit(main.alloc);
@@ -108,6 +120,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     .unfocused => .none,
                     .selected => .{ .select = .{ .from = 0, .to = contents.len } },
                 },
+                .right_click_at = null,
                 .timer = 0,
                 .history = .{},
                 .tab_complete = if (kind == .path) .{ .completions = completions, .names = names, .state = .unloaded } else {},
@@ -187,17 +200,84 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                 return .{ .submit = self.value() };
             };
 
+            if (menu.get(Menu, input)) |option| {
+                switch (option) {
+                    .cut => if (self.cursor == .select) {
+                        try self.copy(self.cursor.select);
+                        self.removeCursor();
+                        maybe_updated.* = true;
+                    },
+                    .copy => if (self.cursor == .select) {
+                        try self.copy(self.cursor.select);
+                        self.cursor = .none;
+                    },
+                    .paste => switch (self.cursor) {
+                        .none => {},
+                        .at => |index| {
+                            try self.paste(index, 0);
+                            maybe_updated.* = true;
+                        },
+                        .select => |selection| {
+                            try self.paste(selection.left(), selection.len());
+                            maybe_updated.* = true;
+                        },
+                    },
+                    .undo => {
+                        maybe_updated.* = false;
+                        try self.undo();
+                    },
+                    .redo => {
+                        maybe_updated.* = false;
+                        try self.redo();
+                    },
+                    .select_all => self.cursor = .{ .select = .{ .from = 0, .to = self.utf8Len() } },
+                }
+                return null;
+            }
+
+            const hovered = clay.pointerOver(id);
+
+            if (hovered) if (input.action) |action| switch (action) {
+                .mouse => |mouse| if (mouse.button == .right and mouse.state == .released) {
+                    self.right_click_at = null;
+                    const data = clay.getElementData(id);
+                    if (data.found) {
+                        const pos = clay.Vector2{
+                            .x = input.mouse_pos.x,
+                            .y = data.boundingBox.y + data.boundingBox.height / 2,
+                        };
+                        menu.register(Menu, pos, .{
+                            .cut = "Cut",
+                            .copy = "Copy",
+                            .paste = "Paste",
+                            .undo = "Undo",
+                            .redo = "Redo",
+                            .select_all = "Select All",
+                        });
+                    }
+                },
+                else => {},
+            };
+
             switch (self.cursor) {
-                .none => if (input.clicked(.left) and clay.pointerOver(id)) {
+                .none => if ((input.clicked(.left) or input.clicked(.right)) and hovered) {
                     if (self.mouseAt(input.mouse_pos)) |at| {
                         self.cursor = .{ .select = .{ .from = at, .to = at } };
+                        if (input.clicked(.right)) self.right_click_at = at;
                     }
                 },
 
                 .at => |index| switch (input.action orelse return null) {
-                    .mouse => if (input.clicked(.left)) {
-                        if (clay.pointerOver(id)) {
+                    .mouse => if (input.clicked(.left) or input.clicked(.right)) {
+                        if (hovered) {
                             if (self.mouseAt(input.mouse_pos)) |at| {
+                                if (input.clicked(.right)) {
+                                    if (self.right_click_at) |right_click_at| if (at != right_click_at) {
+                                        self.cursor = .{ .select = .{ .from = right_click_at, .to = at } };
+                                        self.right_click_at = null;
+                                        return null;
+                                    };
+                                }
                                 self.cursor = .{
                                     .select = if (at == index and self.timer < main.double_click_delay)
                                         .{ .from = 0, .to = self.utf8Len() }
@@ -206,9 +286,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                                 };
                                 self.timer = 0;
                             }
-                        } else {
-                            self.cursor = .none;
-                        }
+                        } else self.cursor = .none;
                     },
 
                     .key => |key| switch (key) {
@@ -241,9 +319,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
 
                         .delete => if (input.ctrl) self.removeCursorToNextSep() else self.removeCursor(),
 
-                        .backspace => if (input.ctrl)
-                            self.removeCursorToPrevSep()
-                        else if (index > 0) {
+                        .backspace => if (input.ctrl) self.removeCursorToPrevSep() else if (index > 0) {
                             self.cursor.at -= 1;
                             self.removeCursor();
                         },
@@ -321,7 +397,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     },
 
                     .event => |event| if (main.is_windows) switch (event) {
-                        .copy => {},
+                        .cut, .copy => {},
                         .paste => try self.paste(index, 0),
                         .undo => try self.undo(),
                         .redo => try self.redo(),
@@ -339,21 +415,34 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                 },
 
                 .select => |selection| switch (input.action orelse return null) {
-                    .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
-                        .pressed => if (clay.pointerOver(id)) {
+                    .mouse => |mouse| if (mouse.button == .left or mouse.button == .right) switch (mouse.state) {
+                        .pressed => if (hovered) {
                             if (self.mouseAt(input.mouse_pos)) |at| {
-                                if (input.shift) {
-                                    self.cursor.select.to = at;
+                                if (mouse.button == .left) {
+                                    if (input.shift) {
+                                        self.cursor.select.to = at;
+                                    } else self.cursor = .{ .select = .{ .from = at, .to = at } };
                                 } else {
-                                    self.cursor = .{ .select = .{ .from = at, .to = at } };
+                                    self.right_click_at = at;
                                 }
                             }
                         } else {
                             self.cursor = .none;
                         },
+
                         .down => if (self.mouseAt(input.mouse_pos)) |at| {
-                            if (self.timer > select_all_delay) self.cursor.select.to = at;
+                            if (mouse.button == .left) {
+                                if (self.timer > select_all_delay) self.cursor.select.to = at;
+                            } else {
+                                if (self.right_click_at) |right_click_at| {
+                                    if (at != right_click_at) {
+                                        self.cursor = .{ .select = .{ .from = right_click_at, .to = at } };
+                                        self.right_click_at = null;
+                                    }
+                                } else if (self.timer > select_all_delay) self.cursor.select.to = at;
+                            }
                         },
+
                         .released => if (selection.from == selection.to) {
                             self.cursor = .{ .at = selection.from };
                             self.timer = 0;
@@ -444,6 +533,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     },
 
                     .event => |event| if (main.is_windows) switch (event) {
+                        .cut => {
+                            try self.copy(selection);
+                            self.removeCursor();
+                        },
                         .copy => try self.copy(selection),
                         .paste => try self.paste(selection.left(), selection.len()),
                         .undo => try self.undo(),

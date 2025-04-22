@@ -149,14 +149,11 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
     if (!tab.cwd.isActive()) if (input.action) |action| switch (action) {
         .mouse => {},
         .event => |event| if (main.is_windows) switch (event) {
-            .copy => {},
-            .paste => {},
+            .cut, .copy, .paste, .redo, .special_char => {},
             .undo => {
                 try tab.undoDelete();
                 return null;
             },
-            .redo => {},
-            .special_char => {},
         },
         .key => |key| switch (key) {
             .char => |c| if (input.ctrl) switch (c) {

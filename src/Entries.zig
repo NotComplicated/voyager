@@ -42,7 +42,6 @@ selection: ?struct { from: struct { Kind, Index }, to: struct { Kind, Index } },
 view: enum { list, grid_sm, grid_md, grid_lg },
 row_len: Index,
 new_item: ?struct { kind: Kind, name: TextBox(.text, clay.id("NewItemInput"), clay.id("NewItemInputSubmit")) },
-focused: ?FocusedEntry,
 
 const Entries = @This();
 
@@ -137,15 +136,10 @@ const Entry = struct {
     readonly: bool,
 };
 
-const FocusedEntry = struct {
-    kind: Kind,
-    index: Index,
-
-    pub const Menu = enum {
-        open,
-        rename,
-        delete,
-    };
+pub const EntryMenu = enum {
+    open,
+    rename,
+    delete,
 };
 
 fn SortedIterator(fields: []const meta.FieldEnum(Entry)) type {
@@ -311,7 +305,6 @@ pub fn init() Error!Entries {
         .view = .list,
         .row_len = 1,
         .new_item = null,
-        .focused = null,
     };
     for (&entries.data.values) |*data| {
         data.ensureTotalCapacity(main.alloc, default_entry_cap) catch return Error.OutOfMemory;
@@ -334,13 +327,14 @@ pub fn deinit(entries: *Entries) void {
 pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
     entries.timer +|= input.delta_ms;
 
-    if (menu.get(FocusedEntry, input)) |result| switch (result.value) {
+    if (menu.get(EntryMenu, input)) |option| switch (option) {
         .open => for (kinds()) |kind| {
             if (try entries.getSelectedNamesByKind(kind)) |names| return .{ .open = .{ .kind = kind, .names = names } };
         } else return null,
 
-        .rename => {
-            const start, const end = entries.data_slices.get(result.data.kind).items(.name)[result.data.index];
+        .rename => if (entries.selection) |selection| {
+            const kind, const index = selection.to;
+            const start, const end = entries.data_slices.get(kind).items(.name)[index];
             return .{ .rename = entries.names.items[start..end] };
         },
 
@@ -395,13 +389,12 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                 while (sorted_iter.next()) |entry| : (sorted_index += 1) {
                     if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
                         entries.select(false, kind, entry.index, input.ctrl, input.shift);
-                        entries.focused = .{ .kind = kind, .index = entry.index };
-                        menu.register(
-                            FocusedEntry,
-                            &entries.focused.?,
-                            input.mouse_pos,
-                            .{ .open = "Open", .rename = "Rename", .delete = "Delete" },
-                        );
+                        entries.selection = .{ .from = .{ kind, entry.index }, .to = .{ kind, entry.index } };
+                        menu.register(EntryMenu, input.mouse_pos, .{
+                            .open = "Open",
+                            .rename = "Rename",
+                            .delete = "Delete",
+                        });
                         return null;
                     }
                 }
@@ -663,8 +656,6 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             themes.current.base,
                         .corner_radius = draw.rounded,
                     })({
-                        if (clay.pointerOver(entries_id)) draw.pointer();
-
                         const icon_image = switch (kind) {
                             .dir => if (clay.hovered()) &resources.images.folder_open else &resources.images.folder,
                             .file => resources.getFileIcon(entry.name),
