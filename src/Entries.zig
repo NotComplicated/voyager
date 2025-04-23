@@ -358,45 +358,56 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
         return null;
     }
 
-    if (input.clicked(.left)) {
-        if (clay.pointerOver(container_id)) {
-            inline for (comptime enums.values(Sorting)) |sorting| {
-                if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
-                    if (entries.curr_sorting == sorting) {
-                        entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
-                    } else {
-                        try entries.sort(sorting);
-                        entries.sort_type = .asc;
-                    }
-                    return null;
+    if (input.clicked(.left) and clay.pointerOver(container_id)) {
+        inline for (comptime enums.values(Sorting)) |sorting| {
+            if (clay.pointerOver(getColumnId(sorting.toTitle(), ""))) {
+                if (entries.curr_sorting == sorting) {
+                    entries.sort_type = if (entries.sort_type == .asc) .desc else .asc;
+                } else {
+                    try entries.sort(sorting);
+                    entries.sort_type = .asc;
                 }
+                return null;
             }
-            inline for (comptime kinds()) |kind| {
-                var sorted_iter = entries.sorted(kind, &.{});
-                var sorted_index: Index = 0;
-                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
-                    if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
-                        return entries.select(true, kind, entry.index, input.ctrl, input.shift);
-                    }
+        }
+        inline for (comptime kinds()) |kind| {
+            var sorted_iter = entries.sorted(kind, &.{});
+            var sorted_index: Index = 0;
+            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
+                    return entries.select(true, kind, entry.index, input.ctrl, input.shift);
                 }
             }
         }
-    } else if (input.clicked(.right)) {
-        if (clay.pointerOver(container_id)) {
-            inline for (comptime kinds()) |kind| {
-                var sorted_iter = entries.sorted(kind, &.{});
-                var sorted_index: Index = 0;
-                while (sorted_iter.next()) |entry| : (sorted_index += 1) {
-                    if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
-                        entries.select(false, kind, entry.index, input.ctrl, input.shift);
-                        entries.selection = .{ .from = .{ kind, entry.index }, .to = .{ kind, entry.index } };
-                        menu.register(EntryMenu, input.mouse_pos, .{
-                            .open = .{ .name = "Open" },
-                            .rename = .{ .name = "Rename" },
-                            .delete = .{ .name = "Delete" },
-                        });
-                        return null;
-                    }
+    } else if (input.clicked(.right) and clay.pointerOver(container_id)) {
+        inline for (comptime kinds()) |kind| {
+            var sorted_iter = entries.sorted(kind, &.{});
+            var sorted_index: Index = 0;
+            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
+                    entries.select(false, kind, entry.index, input.ctrl, input.shift);
+                    entries.selection = .{ .from = .{ kind, entry.index }, .to = .{ kind, entry.index } };
+                    menu.register(EntryMenu, input.mouse_pos, .{
+                        .open = .{ .name = "Open" },
+                        .rename = .{ .name = "Rename" },
+                        .delete = .{ .name = "Delete" },
+                    });
+                    return null;
+                }
+            }
+        }
+    } else if (input.clicked(.middle) and clay.pointerOver(container_id)) {
+        inline for (comptime kinds()) |kind| {
+            var sorted_iter = entries.sorted(kind, &.{.name});
+            var sorted_index: Index = 0;
+            while (sorted_iter.next()) |entry| : (sorted_index += 1) {
+                if (clay.pointerOver(getEntryId(kind, "", sorted_index))) {
+                    return .{
+                        .open = .{
+                            .kind = kind,
+                            .names = try mem.concat(main.alloc, u8, &.{ entry.name, "\x00" }),
+                        },
+                    };
                 }
             }
         }

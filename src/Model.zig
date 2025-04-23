@@ -198,7 +198,7 @@ pub fn update(model: *Model, input: Input) Error!void {
             }
             model.curr_tab = old_tab;
             if (first_name) |name| {
-                if (input.ctrl) try model.newTab();
+                if (input.ctrl or input.clicked(.middle)) try model.newTab();
                 try model.currTab().openDir(name);
                 model.updateTabsBookmarked(model.currTab().directory());
             }
