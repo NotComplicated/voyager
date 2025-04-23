@@ -79,7 +79,7 @@ pub fn render() void {
                     .attach_to = .root,
                 },
             })({
-                draw.text(tooltip.msg.items);
+                draw.text(tooltip.msg.items, .{});
             });
         },
     }

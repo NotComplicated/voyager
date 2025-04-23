@@ -328,7 +328,14 @@ pub fn render(model: Model) void {
                     })({
                         clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 
-                        draw.textEx(.roboto, .sm, tab.tabName(), themes.current.dim_text, tab_width / 2);
+                        draw.text(
+                            tab.tabName(),
+                            .{
+                                .font_size = .sm,
+                                .color = themes.current.dim_text,
+                                .width = tab_width / 2,
+                            },
+                        );
 
                         clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
 

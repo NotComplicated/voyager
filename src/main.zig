@@ -86,8 +86,8 @@ var prevKeyCallback: GlfwKeyfun = undefined;
 
 // This is the only way I know to remove screenshotting @_@
 fn keyCallback(window: *GlfwWindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.c) void {
-    switch (@as(rl.KeyboardKey, @enumFromInt(key))) {
-        rl.KeyboardKey.f12 => if (is_debug) clay.setDebugModeEnabled(true),
+    switch (key) {
+        @as(c_int, @intFromEnum(rl.KeyboardKey.f12)) => if (is_debug) clay.setDebugModeEnabled(true),
         else => prevKeyCallback(window, key, scancode, action, mods),
     }
 }

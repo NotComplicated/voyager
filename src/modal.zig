@@ -186,7 +186,7 @@ pub fn render() void {
             },
             .corner_radius = draw.rounded,
         })({
-            draw.textEx(.roboto, .lg, modal.message.items, themes.current.text, null);
+            draw.text(modal.message.items, .{ .font_size = .lg });
 
             clay.ui()(.{
                 .id = clay.id("ModalFields"),
@@ -204,7 +204,7 @@ pub fn render() void {
                                 .child_gap = 16,
                             },
                         })({
-                            draw.text(label.slice());
+                            draw.text(label.slice(), .{});
 
                             clay.ui()(.{
                                 .layout = .{
@@ -233,7 +233,7 @@ pub fn render() void {
                     .corner_radius = draw.rounded,
                 })({
                     draw.pointer();
-                    draw.textEx(.roboto, .md, modal.reject.slice(), themes.current.bright_text, null);
+                    draw.text(modal.reject.slice(), .{ .color = themes.current.bright_text });
                 });
 
                 clay.ui()(.{
@@ -245,7 +245,7 @@ pub fn render() void {
                     .corner_radius = draw.rounded,
                 })({
                     draw.pointer();
-                    draw.textEx(.roboto, .md, modal.accept.slice(), themes.current.bright_text, null);
+                    draw.text(modal.accept.slice(), .{ .color = themes.current.bright_text });
                 });
             });
         });

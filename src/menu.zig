@@ -9,21 +9,27 @@ const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const Input = @import("Input.zig");
 
+const Label = struct {
+    name: []const u8,
+    icon: ?*rl.Texture = null,
+    enabled: bool = true,
+};
+
 const offset = clay.Vector2{ .x = 16, .y = 16 };
 
 var menu: ?struct {
     type_id: u32,
     pos: clay.Vector2,
-    labels: []const []const u8,
+    labels: []const Label,
 } = null;
 
 pub fn register(
     Menu: type,
     pos: clay.Vector2,
-    labels: enums.EnumFieldStruct(Menu, []const u8, null),
+    labels: enums.EnumFieldStruct(Menu, Label, null),
 ) void {
     const Labels = struct {
-        var array: [meta.fieldNames(Menu).len][]const u8 = undefined;
+        var array: [meta.fieldNames(Menu).len]Label = undefined;
     };
     inline for (&Labels.array, comptime meta.fieldNames(Menu)) |*label, field| label.* = @field(labels, field);
     menu = .{
@@ -34,13 +40,14 @@ pub fn register(
 }
 
 pub fn get(Menu: type, input: Input) ?Menu {
-    if (input.action) |action| switch (action) {
-        .key, .event => menu = null,
-        else => {},
-    };
+    if (input.action) |action| {
+        if (action == .key or action == .event) menu = null;
+    }
     if (menu == null or !input.clicked(.left) or menu.?.type_id != @intFromError(@field(anyerror, @typeName(Menu)))) return null;
     defer menu = null;
-    for (0..menu.?.labels.len) |i| if (clay.pointerOver(clay.idi("MenuOption", @intCast(i)))) return @enumFromInt(i);
+    for (menu.?.labels, 0..) |label, i| {
+        if (label.enabled and clay.pointerOver(clay.idi("MenuOption", @intCast(i)))) return @enumFromInt(i);
+    }
     return null;
 }
 
@@ -51,9 +58,9 @@ pub fn render() void {
     if (pos.y + menu_height > @as(f32, @floatFromInt(rl.getScreenHeight()))) pos.y -= menu_height + 20;
     var longest_option_label_len: usize = 0;
     for (menu.?.labels) |label| {
-        if (label.len > longest_option_label_len) longest_option_label_len = label.len;
+        if (label.name.len > longest_option_label_len) longest_option_label_len = label.name.len;
     }
-    const menu_width = @as(f32, @floatFromInt(longest_option_label_len * 12 + 24));
+    const menu_width = @as(f32, @floatFromInt(longest_option_label_len * 12 + 48));
     if (pos.x + menu_width > @as(f32, @floatFromInt(rl.getScreenWidth()))) pos.x -= menu_width;
 
     clay.ui()(.{
@@ -78,10 +85,19 @@ pub fn render() void {
                     .sizing = .grow(.{}),
                 },
                 .corner_radius = if (i == 0 or i == menu.?.labels.len - 1) draw.rounded else null,
-                .bg_color = if (clay.hovered()) themes.current.hovered else themes.current.pitch_black,
+                .bg_color = if (label.enabled and clay.hovered()) themes.current.hovered else themes.current.pitch_black,
             })({
-                draw.pointer();
-                draw.text(label);
+                if (label.enabled) draw.pointer();
+                clay.ui()(.{
+                    .layout = .{
+                        .sizing = .fixed(16),
+                    },
+                    .image = .{
+                        .image_data = label.icon,
+                        .source_dimensions = .square(16),
+                    },
+                })({});
+                draw.text(label.name, .{ .color = if (label.enabled) themes.current.text else themes.current.dim_text });
             });
         }
     });

@@ -92,7 +92,10 @@ pub fn render() void {
             },
             .corner_radius = draw.rounded,
         })({
-            draw.textEx(.roboto_mono, .lg, alert.msg.items, themes.opacity(themes.current.text, alpha), null);
+            draw.text(
+                alert.msg.items,
+                .{ .font = .roboto_mono, .font_size = .lg, .color = themes.opacity(themes.current.text, alpha) },
+            );
         });
     }
 }

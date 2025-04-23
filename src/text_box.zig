@@ -209,7 +209,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     },
                     .copy => if (self.cursor == .select) {
                         try self.copy(self.cursor.select);
-                        self.cursor = .none;
+                        self.timer = 0;
                     },
                     .paste => switch (self.cursor) {
                         .none => {},
@@ -230,7 +230,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                         maybe_updated.* = false;
                         try self.redo();
                     },
-                    .select_all => self.cursor = .{ .select = .{ .from = 0, .to = self.utf8Len() } },
+                    .select_all => {
+                        self.cursor = .{ .select = .{ .from = 0, .to = self.utf8Len() } };
+                        self.timer = 0;
+                    },
                 }
                 return null;
             }
@@ -246,13 +249,14 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                             .x = input.mouse_pos.x,
                             .y = data.boundingBox.y + data.boundingBox.height / 2,
                         };
+                        const has_selection = self.cursor == .select and self.cursor.select.len() > 0;
                         menu.register(Menu, pos, .{
-                            .cut = "Cut",
-                            .copy = "Copy",
-                            .paste = "Paste",
-                            .undo = "Undo",
-                            .redo = "Redo",
-                            .select_all = "Select All",
+                            .cut = .{ .name = "Cut", .enabled = has_selection },
+                            .copy = .{ .name = "Copy", .enabled = has_selection },
+                            .paste = .{ .name = "Paste", .enabled = self.cursor != .none },
+                            .undo = .{ .name = "Undo" },
+                            .redo = .{ .name = "Redo" },
+                            .select_all = .{ .name = "Select All" },
                         });
                     }
                 },
@@ -577,13 +581,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                 draw.ibeam();
 
                 switch (self.cursor) {
-                    .none => draw.textEx(
-                        .roboto_mono,
-                        .md,
-                        self.content.items,
-                        themes.current.text,
-                        null,
-                    ),
+                    .none => draw.text(self.content.items, .{ .font = .roboto_mono }),
 
                     .at => |index| {
                         const before, const after = if (unicode.Utf8View.init(self.value())) |chars| utf8: {
@@ -592,7 +590,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                             break :utf8 .{ before, self.value()[before.len..] };
                         } else |_| .{ self.value()[0..index], self.value()[index..] };
 
-                        draw.textEx(.roboto_mono, .md, before, themes.current.text, null);
+                        draw.text(before, .{ .font = .roboto_mono });
                         if ((self.timer / ibeam_blink_interval) % 2 == 0) {
                             clay.ui()(.{
                                 .floating = .{
@@ -606,10 +604,17 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                                     .attach_to = .parent,
                                 },
                             })({
-                                draw.textEx(.roboto_mono, .xl, "|", themes.current.bright_text, null);
+                                draw.text(
+                                    "|",
+                                    .{
+                                        .font = .roboto_mono,
+                                        .font_size = .xl,
+                                        .color = themes.current.bright_text,
+                                    },
+                                );
                             });
                         }
-                        draw.textEx(.roboto_mono, .md, after, themes.current.text, null);
+                        draw.text(after, .{ .font = .roboto_mono });
                     },
 
                     .select => |selection| {
@@ -625,13 +630,13 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                             self.value()[selection.right()..],
                         };
 
-                        draw.textEx(.roboto_mono, .md, before, themes.current.text, null);
+                        draw.text(before, .{ .font = .roboto_mono });
                         clay.ui()(.{
                             .bg_color = themes.current.highlight,
                         })({
-                            draw.textEx(.roboto_mono, .md, inside, themes.current.base, null);
+                            draw.text(inside, .{ .font = .roboto_mono, .color = themes.current.base });
                         });
-                        draw.textEx(.roboto_mono, .md, after, themes.current.text, null);
+                        draw.text(after, .{ .font = .roboto_mono });
                     },
                 }
 
@@ -639,12 +644,9 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                     .unloaded => {},
                     .selecting, .just_updated => |current| {
                         const start, const end = self.tab_complete.completions.items[current];
-                        draw.textEx(
-                            .roboto_mono,
-                            .md,
+                        draw.text(
                             self.tab_complete.names.items[start..end],
-                            themes.current.dim_text,
-                            null,
+                            .{ .font = .roboto_mono, .color = themes.current.dim_text },
                         );
                     },
                 };

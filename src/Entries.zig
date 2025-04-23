@@ -391,9 +391,9 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                         entries.select(false, kind, entry.index, input.ctrl, input.shift);
                         entries.selection = .{ .from = .{ kind, entry.index }, .to = .{ kind, entry.index } };
                         menu.register(EntryMenu, input.mouse_pos, .{
-                            .open = "Open",
-                            .rename = "Rename",
-                            .delete = "Delete",
+                            .open = .{ .name = "Open" },
+                            .rename = .{ .name = "Rename" },
+                            .delete = .{ .name = "Delete" },
                         });
                         return null;
                     }
@@ -556,7 +556,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                         .corner_radius = draw.rounded,
                     })({
                         draw.pointer();
-                        draw.text(title);
+                        draw.text(title, .{});
 
                         clay.ui()(.{
                             .id = getColumnId(title, "Sort"),
@@ -688,7 +688,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 .sizing = name_sizing,
                             },
                         })({
-                            draw.textEx(.roboto, .md, entry.name, themes.current.text, name_chars * char_px_width);
+                            draw.text(entry.name, .{ .width = name_chars * char_px_width });
                         });
                         cutoff += name_chars * char_px_width;
 
@@ -704,9 +704,9 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                     const extension = fs.path.extension(entry.name);
                                     if (extension.len > 0 and extension.len <= ext_len) {
                                         if (file_types.getIndex(extension[1..])) |i| {
-                                            draw.text(file_types.kvs.keys[i]);
+                                            draw.text(file_types.kvs.keys[i], .{});
                                         } else {
-                                            draw.text(extension[1..]);
+                                            draw.text(extension[1..], .{});
                                         }
                                     }
                                 }
@@ -725,7 +725,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 draw.text(switch (kind) {
                                     .dir => "",
                                     .file => entries.sizes.items[entry.index].slice(),
-                                });
+                                }, .{});
                             });
                         }
                         cutoff += size_chars * char_px_width;
@@ -740,13 +740,13 @@ pub fn render(entries: Entries, left_margin: usize) void {
                             })({
                                 if (entry.created) |created| {
                                     switch (created) {
-                                        .just_now => draw.text("Just now"),
+                                        .just_now => draw.text("Just now", .{}),
                                         .past => |timespan| {
-                                            draw.text(intToString(timespan.count));
-                                            draw.text(timespan.metric.toString(timespan.count != 1));
+                                            draw.text(intToString(timespan.count), .{});
+                                            draw.text(timespan.metric.toString(timespan.count != 1), .{});
                                         },
                                     }
-                                } else draw.text("");
+                                } else draw.text("", .{});
                             });
                         }
                         cutoff += timespan_chars * char_px_width;
@@ -760,10 +760,10 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 },
                             })({
                                 switch (entry.modified) {
-                                    .just_now => draw.text("Just now"),
+                                    .just_now => draw.text("Just now", .{}),
                                     .past => |timespan| {
-                                        draw.text(intToString(timespan.count));
-                                        draw.text(timespan.metric.toString(timespan.count != 1));
+                                        draw.text(intToString(timespan.count), .{});
+                                        draw.text(timespan.metric.toString(timespan.count != 1), .{});
                                     },
                                 }
                             });

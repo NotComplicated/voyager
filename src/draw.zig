@@ -33,31 +33,29 @@ pub fn left_right_arrows() void {
     if (clay.hovered()) cursor = .resize_ew;
 }
 
-pub fn text(contents: []const u8) void {
-    textEx(.roboto, .md, contents, themes.current.text, null);
-}
-
-pub fn textEx(
-    comptime font: resources.Font,
-    comptime font_size: resources.FontSize,
+pub fn text(
     contents: []const u8,
-    color: clay.Color,
-    width: ?usize,
+    options: struct {
+        font: resources.Font = .roboto,
+        font_size: resources.FontSize = .md,
+        color: ?clay.Color = null,
+        width: ?usize = null,
+    },
 ) void {
-    inline for (comptime enums.values(resources.Font), 0..) |font_inner, i| {
-        inline for (comptime enums.values(resources.FontSize), 0..) |size, j| {
-            if (font_inner == font and size == font_size) {
+    inline for (comptime enums.values(resources.Font), 0..) |font, i| {
+        inline for (comptime enums.values(resources.FontSize), 0..) |font_size, j| {
+            if (font == options.font and font_size == options.font_size) {
                 var config = clay.Config.Text{
-                    .color = color,
+                    .color = options.color orelse themes.current.text,
                     .font_id = @intCast(i * enums.values(resources.FontSize).len + j),
-                    .font_size = @intFromEnum(size),
+                    .font_size = @intFromEnum(font_size),
                     .wrap_mode = .none,
                     .hash_string_contents = true,
                 };
 
-                if (width) |width_inner| {
+                if (options.width) |width| {
                     const dimensions = renderer.measureText(contents, &config, &resources.fonts);
-                    const width_float: f32 = @floatFromInt(width_inner);
+                    const width_float: f32 = @floatFromInt(width);
                     if (dimensions.width > width_float) {
                         const new_len: usize = @intFromFloat(@as(f32, @floatFromInt(contents.len)) * width_float / dimensions.width);
                         clay.text(contents[0..new_len -| "...".len], config);
@@ -69,5 +67,4 @@ pub fn textEx(
             }
         }
     }
-    comptime unreachable;
 }

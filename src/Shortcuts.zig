@@ -317,7 +317,7 @@ pub fn render(shortcuts: Shortcuts) void {
                     .corner_radius = draw.rounded,
                 })({
                     draw.pointer();
-                    draw.textEx(.roboto, .sm, "Bookmarks", themes.current.dim_text, null);
+                    draw.text("Bookmarks", .{ .font_size = .sm, .color = themes.current.dim_text });
                     clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
                     clay.ui()(.{
                         .layout = .{
@@ -414,7 +414,7 @@ pub fn render(shortcuts: Shortcuts) void {
                                         .source_dimensions = .square(24),
                                     },
                                 })({});
-                                draw.textEx(.roboto, .md, bookmark.name, themes.current.text, shortcuts.width);
+                                draw.text(bookmark.name, .{ .width = shortcuts.width });
                                 clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
                                 if (hovered) {
                                     clay.ui()(.{
@@ -454,7 +454,7 @@ pub fn render(shortcuts: Shortcuts) void {
                     .corner_radius = draw.rounded,
                 })({
                     draw.pointer();
-                    draw.textEx(.roboto, .sm, "Drives", themes.current.dim_text, null);
+                    draw.text("Drives", .{ .font_size = .sm, .color = themes.current.dim_text });
                     clay.ui()(.{ .layout = .{ .sizing = .grow(.{}) } })({});
                     clay.ui()(.{
                         .layout = .{
@@ -484,12 +484,12 @@ pub fn render(shortcuts: Shortcuts) void {
                         })({
                             draw.pointer();
                             if (drive.type) |drive_type| {
-                                draw.text(drive_type);
-                                draw.text(" (");
-                                draw.text(drive.path[0..2]);
-                                draw.text(")");
+                                draw.text(drive_type, .{});
+                                draw.text(" (", .{});
+                                draw.text(drive.path[0..2], .{});
+                                draw.text(")", .{});
                             } else {
-                                draw.text(drive.path[0..2]);
+                                draw.text(drive.path[0..2], .{});
                             }
                         });
                     }
