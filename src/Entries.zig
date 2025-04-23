@@ -388,9 +388,9 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                     entries.select(false, kind, entry.index, input.ctrl, input.shift);
                     entries.selection = .{ .from = .{ kind, entry.index }, .to = .{ kind, entry.index } };
                     menu.register(EntryMenu, input.mouse_pos, .{
-                        .open = .{ .name = "Open" },
-                        .rename = .{ .name = "Rename" },
-                        .delete = .{ .name = "Delete" },
+                        .open = .{ .name = "Open", .icon = &resources.images.open },
+                        .rename = .{ .name = "Rename", .icon = &resources.images.ibeam },
+                        .delete = .{ .name = "Delete", .icon = &resources.images.trash },
                     });
                     return null;
                 }

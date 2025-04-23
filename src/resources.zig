@@ -66,7 +66,6 @@ const image_filenames = .{
     .arrow_up = "arrow-up.png",
     .clipboard = "clipboard.png",
     .compare = "compare.png",
-    .copy = "copy.png",
     .edit_file = "edit-file.png",
     .edit_text_file = "edit-text-file.png",
     .filetypes = "filetypes.png",
@@ -87,6 +86,15 @@ const image_filenames = .{
     .bookmarked = "bookmarked.png",
     .expand = "expand.png",
     .collapse = "collapse.png",
+    .ibeam = "ibeam.png",
+    .open = "open.png",
+    .trash = "trash.png",
+    .cut = "cut.png",
+    .copy = "copy.png",
+    .paste = "paste.png",
+    .backward = "backward.png",
+    .forward = "forward.png",
+    .highlight = "highlight.png",
 };
 
 pub var images: enums.EnumFieldStruct(meta.FieldEnum(@TypeOf(image_filenames)), rl.Texture, null) = undefined;

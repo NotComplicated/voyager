@@ -43,6 +43,7 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             .history = history: {
                 var history = @FieldType(Self, "history"){};
                 history.appendAssumeCapacity(.{ .content = .empty, .cursor = .none });
+                for (history.unusedCapacitySlice()) |*hist| hist.* = .{ .content = .empty, .cursor = .none };
                 break :history history;
             },
             .tab_complete = if (kind == .path) .{
@@ -129,9 +130,10 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
             try text_box.content.appendSlice(main.alloc, contents);
 
             for (text_box.history.unusedCapacitySlice()) |*hist| {
-                hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = text_box.cursor };
+                hist.* = .{ .content = try text_box.content.clone(main.alloc), .cursor = .none };
             }
             text_box.history.len = 1;
+            text_box.history.slice()[0].cursor = text_box.cursor;
 
             return text_box;
         }
@@ -251,12 +253,36 @@ pub fn TextBox(kind: enum(u8) { path, text }, id: clay.Id, checkmark_id: ?clay.I
                         };
                         const has_selection = self.cursor == .select and self.cursor.select.len() > 0;
                         menu.register(Menu, pos, .{
-                            .cut = .{ .name = "Cut", .enabled = has_selection },
-                            .copy = .{ .name = "Copy", .enabled = has_selection },
-                            .paste = .{ .name = "Paste", .enabled = self.cursor != .none },
-                            .undo = .{ .name = "Undo" },
-                            .redo = .{ .name = "Redo" },
-                            .select_all = .{ .name = "Select All" },
+                            .cut = .{
+                                .name = "Cut",
+                                .icon = &resources.images.cut,
+                                .enabled = has_selection,
+                            },
+                            .copy = .{
+                                .name = "Copy",
+                                .icon = &resources.images.copy,
+                                .enabled = has_selection,
+                            },
+                            .paste = .{
+                                .name = "Paste",
+                                .icon = &resources.images.paste,
+                                .enabled = self.cursor != .none,
+                            },
+                            .undo = .{
+                                .name = "Undo",
+                                .icon = &resources.images.backward,
+                                .enabled = self.history.len > 1,
+                            },
+                            .redo = .{
+                                .name = "Redo",
+                                .icon = &resources.images.forward,
+                                .enabled = self.history.unusedCapacitySlice().len > 0 and
+                                    self.history.unusedCapacitySlice()[0].cursor != .none,
+                            },
+                            .select_all = .{
+                                .name = "Select All",
+                                .icon = &resources.images.highlight,
+                            },
                         });
                     }
                 },

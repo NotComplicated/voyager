@@ -5,13 +5,14 @@ const meta = std.meta;
 const clay = @import("clay");
 const rl = @import("raylib");
 
+const resources = @import("resources.zig");
 const themes = @import("themes.zig");
 const draw = @import("draw.zig");
 const Input = @import("Input.zig");
 
 const Label = struct {
     name: []const u8,
-    icon: ?*rl.Texture = null,
+    icon: *rl.Texture,
     enabled: bool = true,
 };
 
@@ -78,26 +79,35 @@ pub fn render() void {
         },
     })({
         for (menu.?.labels, 0..) |label, i| {
+            const id = clay.idi("MenuOption", @intCast(i));
+
             clay.ui()(.{
-                .id = clay.idi("MenuOption", @intCast(i)),
+                .id = id,
                 .layout = .{
-                    .padding = .xy(24, 12),
+                    .padding = .xy(16, 12),
                     .sizing = .grow(.{}),
+                    .child_alignment = .{ .x = .left, .y = .center },
+                    .child_gap = 12,
                 },
                 .corner_radius = if (i == 0 or i == menu.?.labels.len - 1) draw.rounded else null,
-                .bg_color = if (label.enabled and clay.hovered()) themes.current.hovered else themes.current.pitch_black,
+                .bg_color = if (label.enabled and clay.pointerOver(id)) themes.current.hovered else themes.current.pitch_black,
             })({
                 if (label.enabled) draw.pointer();
+
+                const icon_size: f32 = @floatFromInt(@intFromEnum(resources.FontSize.md));
+                const color = if (label.enabled) themes.current.bright_text else themes.current.dim_text;
+
                 clay.ui()(.{
                     .layout = .{
-                        .sizing = .fixed(16),
+                        .sizing = .fixed(icon_size),
                     },
+                    .bg_color = color,
                     .image = .{
                         .image_data = label.icon,
-                        .source_dimensions = .square(16),
+                        .source_dimensions = .square(icon_size),
                     },
                 })({});
-                draw.text(label.name, .{ .color = if (label.enabled) themes.current.text else themes.current.dim_text });
+                draw.text(label.name, .{ .color = color });
             });
         }
     });
