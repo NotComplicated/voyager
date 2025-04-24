@@ -16,7 +16,10 @@ const resources = @import("resources.zig");
 const windows = @import("windows.zig");
 const config = @import("config.zig");
 const draw = @import("draw.zig");
+const modal = @import("modal.zig");
 const tooltip = @import("tooltip.zig");
+const menu = @import("menu.zig");
+const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Model = @import("Model.zig");
 const TextBox = @import("text_box.zig").TextBox;
@@ -30,6 +33,7 @@ new_bookmark: ?struct {
     path: []const u8,
     name: TextBox(.text, clay.id("NewBookmarkInput"), clay.id("NewBookmarkInputSubmit")),
 },
+menu_bookmark: usize,
 drives: if (main.is_windows)
     struct { data: main.ArrayList(windows.Drive), state: union(enum) { shown: u32, hidden } }
 else
@@ -51,6 +55,11 @@ pub const Message = union(enum) {
     bookmark_deleted: []const u8,
 };
 
+const Menu = enum {
+    rename,
+    delete,
+};
+
 const widths = .{ .min = 200, .max = 350, .default = 250, .cutoff = 500 };
 const toggle_id = clay.id("ShortcutsToggle");
 const bookmarks_container_id = clay.id("BookmarksContainer");
@@ -68,6 +77,7 @@ pub const init = Shortcuts{
     .show_bookmarks = true,
     .drag_bookmark = null,
     .new_bookmark = null,
+    .menu_bookmark = 0,
     .drives = if (main.is_windows) .{ .data = .empty, .state = .{ .shown = 0 } } else {},
     .width = widths.default,
     .dragging = false,
@@ -89,6 +99,41 @@ pub fn deinit(shortcuts: *Shortcuts) void {
 pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
     if (input.clicked(.left) and clay.pointerOver(toggle_id)) shortcuts.expanded = !shortcuts.expanded;
     if (!shortcuts.expanded) return null;
+
+    if (menu.get(Menu, input)) |option| {
+        switch (option) {
+            .rename => {
+                const writers = modal.set(.text, Shortcuts, shortcuts, struct {
+                    fn f(shortcuts_inner: *Shortcuts, new_name: []const u8) Error!void {
+                        if (new_name.len == 0) {
+                            alert.updateFmt("No name provided.", .{});
+                            return;
+                        }
+                        const name = &shortcuts_inner.bookmarks.items[shortcuts_inner.menu_bookmark].name;
+                        main.alloc.free(name.*);
+                        name.* = try main.alloc.dupe(u8, new_name);
+                        config.save();
+                    }
+                }.f);
+
+                fmt.format(
+                    writers.message,
+                    "Rename '{s}'?",
+                    .{shortcuts.bookmarks.items[shortcuts.menu_bookmark].name},
+                ) catch return Error.Unexpected;
+                writers.labels[0].writeAll("New name") catch return Error.Unexpected;
+                writers.reject.writeAll("Cancel") catch return Error.Unexpected;
+                writers.accept.writeAll("Rename") catch return Error.Unexpected;
+            },
+            .delete => {
+                const removed = shortcuts.bookmarks.orderedRemove(shortcuts.menu_bookmark);
+                main.alloc.free(removed.name);
+                config.save();
+                return .{ .bookmark_deleted = removed.path };
+            },
+        }
+        return null;
+    }
 
     if (clay.pointerOver(width_handle_id)) if (input.action) |action| switch (action) {
         .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
@@ -134,6 +179,13 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
                             .container = container,
                         };
                     }
+                } else if (input.clicked(.right)) {
+                    shortcuts.menu_bookmark = i;
+                    tooltip.disable();
+                    menu.register(Menu, input.mouse_pos, .{
+                        .rename = .{ .name = "Rename", .icon = &resources.images.ibeam },
+                        .delete = .{ .name = "Delete", .icon = &resources.images.trash },
+                    });
                 } else if (tooltip.update(input)) |writer| try writer.writeAll(bookmark.path);
                 break;
             }
