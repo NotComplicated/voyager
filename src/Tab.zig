@@ -38,6 +38,8 @@ pub const Message = union(enum) {
     open_dirs: []const u8,
     open_parent_dir,
     toggle_bookmark: []const u8,
+    set_clipboard: Model.Transfer,
+    paste,
 };
 
 const DelEvent = union(enum) {
@@ -106,6 +108,7 @@ pub fn deinit(tab: *Tab) void {
 
 pub fn update(tab: *Tab, input: Input) Error!?Message {
     if (rl.isFileDropped()) {
+        // TODO
         const files = rl.loadDroppedFiles();
         defer rl.unloadDroppedFiles(files);
         if (main.is_debug) for (files.paths[0..files.count]) |path| log.debug("Dropped: {s}", .{path});
@@ -116,7 +119,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
     } else if (!tab.cwd.isActive() and !tab.entries.isActive()) {
         if (input.clicked(.side)) {
             return .open_parent_dir;
-        } else if (input.clicked(.left)) {
+        } else if (input.clicked(.left)) { // TODO middle click new tab for parent
             inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
                 if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                     switch (button) {
@@ -149,11 +152,12 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
     if (!tab.cwd.isActive()) if (input.action) |action| switch (action) {
         .mouse => {},
         .event => |event| if (main.is_windows) switch (event) {
-            .cut, .copy, .paste, .redo, .special_char => {},
+            .paste => return .paste,
             .undo => {
                 try tab.undoDelete();
                 return null;
             },
+            else => {},
         },
         .key => |key| switch (key) {
             .char => |c| if (input.ctrl) switch (c) {
@@ -165,6 +169,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
                     tab.cwd.focus();
                     return null;
                 },
+                'v' => return .paste,
                 else => {},
             },
             .up => if (input.alt) return .open_parent_dir,
@@ -343,6 +348,21 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
                 writers.reject.writeAll("Cancel") catch return Error.Unexpected;
                 writers.accept.writeAll("Rename") catch return Error.Unexpected;
             },
+
+            .set_clipboard => |clipboard| {
+                errdefer main.alloc.free(clipboard.names);
+                const dir_path = try main.alloc.dupe(u8, tab.directory());
+                return .{ .set_clipboard = .{
+                    .mode = switch (clipboard.mode) {
+                        .copy => .copy,
+                        .cut => .cut,
+                    },
+                    .dir_path = dir_path,
+                    .names = clipboard.names,
+                } };
+            },
+
+            .paste => return .paste,
         }
     }
 

@@ -57,6 +57,8 @@ pub const Message = union(enum) {
     create: struct { kind: Kind, name: []const u8 },
     delete: []const u8,
     rename: []const u8,
+    set_clipboard: struct { mode: enum { copy, cut }, names: []const u8 },
+    paste,
 };
 
 const Timespan = union(enum) {
@@ -134,11 +136,15 @@ const Entry = struct {
     created_millis: ?u64,
     modified_millis: u64,
     readonly: bool,
+    cut: bool,
 };
 
 pub const EntryMenu = enum {
     open,
     rename,
+    cut,
+    copy,
+    paste,
     delete,
 };
 
@@ -338,6 +344,12 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
             return .{ .rename = entries.names.items[start..end] };
         },
 
+        .cut => return entries.cut(),
+
+        .copy => return entries.copy(),
+
+        .paste => return .paste,
+
         .delete => return if (try entries.getSelectedNames()) |names| .{ .delete = names } else null,
     };
 
@@ -390,6 +402,9 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                     menu.register(EntryMenu, input.mouse_pos, .{
                         .open = .{ .name = "Open", .icon = &resources.images.open },
                         .rename = .{ .name = "Rename", .icon = &resources.images.ibeam },
+                        .cut = .{ .name = "Cut", .icon = &resources.images.cut, .enabled = entries.selection != null },
+                        .copy = .{ .name = "Copy", .icon = &resources.images.copy, .enabled = entries.selection != null },
+                        .paste = .{ .name = "Paste", .icon = &resources.images.paste },
                         .delete = .{ .name = "Delete", .icon = &resources.images.trash },
                     });
                     return null;
@@ -413,13 +428,16 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
         }
     } else if (input.action) |action| {
         if (focused) switch (action) {
-            .mouse, .event => {},
+            .mouse => {},
+
             .key => |key| switch (key) {
                 .char => |char| if (input.ctrl) switch (char) {
                     'a' => {
                         entries.selectFirst(false, false);
                         entries.selectLast(false, true);
                     },
+                    'x' => return entries.cut(),
+                    'c' => return entries.copy(),
                     'n', 'N' => if (entries.new_item == null) {
                         const kind: Kind = if (input.shift) .dir else .file;
                         switch (kind) {
@@ -481,6 +499,12 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
 
                 .delete => return if (try entries.getSelectedNames()) |names| .{ .delete = names } else null,
 
+                else => {},
+            },
+
+            .event => |event| switch (event) {
+                .cut => return entries.cut(),
+                .copy => return entries.copy(),
                 else => {},
             },
         };
@@ -650,6 +674,7 @@ pub fn render(entries: Entries, left_margin: usize) void {
                     .selected,
                     .created,
                     .modified,
+                    .cut,
                 });
                 var sorted_index: Index = 0;
                 while (sorted_iter.next()) |entry| : (sorted_index += 1) {
@@ -699,7 +724,10 @@ pub fn render(entries: Entries, left_margin: usize) void {
                                 .sizing = name_sizing,
                             },
                         })({
-                            draw.text(entry.name, .{ .width = name_chars * char_px_width });
+                            draw.text(entry.name, .{
+                                .color = if (entry.cut) themes.current.dim_text else themes.current.text,
+                                .width = name_chars * char_px_width,
+                            });
                         });
                         cutoff += name_chars * char_px_width;
 
@@ -847,6 +875,7 @@ pub fn load(entries: *Entries, path: []const u8) Error!void {
                 .created_millis = if (metadata.created()) |created| nanosToMillis(created) else null,
                 .modified_millis = nanosToMillis(metadata.modified()),
                 .readonly = metadata.permissions().readOnly(),
+                .cut = false,
             },
         );
         if (data.len == math.maxInt(Index)) {
@@ -894,6 +923,28 @@ pub fn format(entries: Entries, comptime _: []const u8, _: fmt.FormatOptions, wr
     }
     try fmt.format(writer, "\nselection: {?}", .{entries.selection});
     if (entries.new_item) |new_item| try fmt.format(writer, "\nnew_item: {?}", .{new_item.name});
+}
+
+fn cut(entries: *Entries) Error!?Message {
+    if (try entries.getSelectedNames()) |names| {
+        entries.clearCut();
+        for (kinds()) |kind| {
+            var sorted_iter = entries.sorted(kind, &.{.selected});
+            while (sorted_iter.next()) |entry| {
+                if (entry.selected) entries.data_slices.get(kind).items(.cut)[entry.index] = true;
+            }
+        }
+        return .{ .set_clipboard = .{ .mode = .cut, .names = names } };
+    }
+    return null;
+}
+
+fn copy(entries: *Entries) Error!?Message {
+    if (try entries.getSelectedNames()) |names| {
+        entries.clearCut();
+        return .{ .set_clipboard = .{ .mode = .copy, .names = names } };
+    }
+    return null;
 }
 
 fn sorted(entries: Entries, kind: Kind, comptime fields: []const meta.FieldEnum(Entry)) SortedIterator(fields) {
@@ -1116,4 +1167,10 @@ fn jump(entries: *Entries, char: u8) void {
     }
     const kind, const index = first orelse return;
     entries.select(false, kind, index, false, false);
+}
+
+fn clearCut(entries: *Entries) void {
+    for (entries.data_slices.values) |slice| {
+        for (slice.items(.cut)) |*c| c.* = false;
+    }
 }

@@ -55,7 +55,7 @@ pub const Message = union(enum) {
     bookmark_deleted: []const u8,
 };
 
-const Menu = enum {
+const BookmarkMenu = enum {
     rename,
     delete,
 };
@@ -100,7 +100,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
     if (input.clicked(.left) and clay.pointerOver(toggle_id)) shortcuts.expanded = !shortcuts.expanded;
     if (!shortcuts.expanded) return null;
 
-    if (menu.get(Menu, input)) |option| {
+    if (menu.get(BookmarkMenu, input)) |option| {
         switch (option) {
             .rename => {
                 const writers = modal.set(.text, Shortcuts, shortcuts, struct {
@@ -179,10 +179,11 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
                             .container = container,
                         };
                     }
+                    // TODO middle click new tab
                 } else if (input.clicked(.right)) {
                     shortcuts.menu_bookmark = i;
                     tooltip.disable();
-                    menu.register(Menu, input.mouse_pos, .{
+                    menu.register(BookmarkMenu, input.mouse_pos, .{
                         .rename = .{ .name = "Rename", .icon = &resources.images.ibeam },
                         .delete = .{ .name = "Delete", .icon = &resources.images.trash },
                     });
@@ -200,6 +201,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
             } else for (shortcuts.drives.data.items, 0..) |*drive, i| {
                 if (clay.pointerOver(clay.idi("Drive", @intCast(i)))) {
                     if (input.clicked(.left)) return .{ .open = &drive.path };
+                    // TODO middle click new tab
                     if (tooltip.update(input)) |writer| {
                         try fmt.format(
                             writer,

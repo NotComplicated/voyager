@@ -12,6 +12,7 @@ const draw = @import("draw.zig");
 const windows = @import("windows.zig");
 const config = @import("config.zig");
 const modal = @import("modal.zig");
+const alert = @import("alert.zig");
 const Input = @import("Input.zig");
 const Tab = @import("Tab.zig");
 const Shortcuts = @import("Shortcuts.zig");
@@ -25,10 +26,23 @@ tabs: main.ArrayList(Tab),
 curr_tab: TabIndex,
 tab_drag: ?struct { x_pos: f32, tab_offset: f32, dist: f32, dimming: i8 },
 shortcuts: Shortcuts,
+clipboard: ?Transfer,
+dragging: ?Transfer,
 
 const Model = @This();
 
 const TabIndex = u4;
+
+pub const Transfer = struct {
+    mode: enum { copy, cut },
+    dir_path: []const u8,
+    names: []const u8,
+
+    pub fn deinit(transfer: *Transfer) void {
+        main.alloc.free(transfer.dir_path);
+        main.alloc.free(transfer.names);
+    }
+};
 
 pub const row_height = 30;
 pub const tabs_height = 32;
@@ -52,6 +66,8 @@ pub fn init(args: *process.ArgIterator) Error!Model {
         .curr_tab = 0,
         .tab_drag = null,
         .shortcuts = .init,
+        .clipboard = null,
+        .dragging = null,
     };
 
     const path = fs.realpathAlloc(main.alloc, args.next() orelse ".") catch return Error.OutOfMemory;
@@ -65,6 +81,7 @@ pub fn deinit(model: *Model) void {
     for (model.tabs.items) |*tab| tab.deinit();
     model.tabs.deinit(main.alloc);
     model.shortcuts.deinit();
+    if (model.clipboard) |*clipboard| clipboard.deinit();
 }
 
 pub fn update(model: *Model, input: Input) Error!void {
@@ -213,6 +230,64 @@ pub fn update(model: *Model, input: Input) Error!void {
         .toggle_bookmark => |path| {
             try model.shortcuts.toggleBookmark(path);
             model.updateTabsBookmarked(path);
+        },
+
+        .set_clipboard => |clipboard| {
+            if (model.clipboard) |*transfer| transfer.deinit();
+            model.clipboard = clipboard;
+        },
+
+        .paste => {
+            const dir_path = model.currTab().directory();
+            if (model.clipboard) |*transfer| {
+                defer {
+                    transfer.deinit();
+                    model.clipboard = null;
+                }
+
+                var src_path = std.ArrayList(u8).init(main.alloc);
+                var dest_path = std.ArrayList(u8).init(main.alloc);
+                defer src_path.deinit();
+                defer dest_path.deinit();
+                try src_path.appendSlice(transfer.dir_path);
+                try dest_path.appendSlice(dir_path);
+                try src_path.append(fs.path.sep);
+                try dest_path.append(fs.path.sep);
+                const src_path_dir_len = src_path.items.len;
+                const dest_path_dir_len = dest_path.items.len;
+
+                var names_iter = mem.tokenizeScalar(u8, transfer.names, '\x00');
+                while (names_iter.next()) |name| {
+                    src_path.shrinkRetainingCapacity(src_path_dir_len);
+                    dest_path.shrinkRetainingCapacity(dest_path_dir_len);
+                    try src_path.appendSlice(name);
+                    try src_path.append('\x00');
+                    try dest_path.appendSlice(name);
+                    try dest_path.append('\x00');
+
+                    if (main.is_windows) {
+                        // TODO modal if overwriting
+                        switch (transfer.mode) {
+                            .copy => windows.copyFile(
+                                @ptrCast(src_path.items),
+                                @ptrCast(dest_path.items),
+                            ) catch |err| alert.update(err),
+                            .cut => windows.moveFile(
+                                @ptrCast(src_path.items),
+                                @ptrCast(dest_path.items),
+                            ) catch |err| alert.update(err),
+                        }
+                    } else {
+                        // TODO copy/move file posix
+                    }
+                }
+
+                for (model.tabs.items) |*tab| {
+                    if (mem.eql(u8, tab.directory(), transfer.dir_path) or mem.eql(u8, tab.directory(), dir_path)) {
+                        try tab.reloadEntries();
+                    }
+                }
+            }
         },
     };
 }

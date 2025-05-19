@@ -100,6 +100,25 @@ pub const DrivesIterator = struct {
 
 const WNDPROC = @TypeOf(&newWindowProc);
 
+const PROGRESS_ROUTINE = fn (
+    total_file_size: win.LARGE_INTEGER,
+    total_bytes_transferred: win.LARGE_INTEGER,
+    stream_size: win.LARGE_INTEGER,
+    stream_bytes_transferred: win.LARGE_INTEGER,
+    stream_number: win.DWORD,
+    callback_reason: win.DWORD,
+    source_file: win.HANDLE,
+    destination_file: win.HANDLE,
+    data: ?win.LPVOID,
+) callconv(.winapi) win.DWORD;
+
+const ProgressRoutineResult = enum(win.DWORD) {
+    cancel = 1,
+    @"continue" = 0,
+    quiet = 3,
+    stop = 2,
+};
+
 const SID = extern struct {
     revision: win.BYTE,
     sub_authority_count: win.BYTE,
@@ -168,6 +187,7 @@ const meta_header = &(.{0x02} ++ .{0x00} ** 7);
 const dwma_caption_color = 35;
 const gwlp_wndproc = -4;
 const wm_char = 0x0102;
+const cut_char = 'X' - 0x40;
 const copy_char = 'C' - 0x40;
 const paste_char = 'V' - 0x40;
 const undo_char = 'Z' - 0x40;
@@ -217,7 +237,21 @@ pub fn setTitleColor(color: clay.Color) void {
 
 pub fn moveFile(old_path: [:0]const u8, new_path: [:0]const u8) !void {
     if (main.is_debug) log.debug("Move: {s} -> {s}", .{ old_path, new_path });
+    // TODO replace with MoveFileWithProgress?
     return win.MoveFileEx(old_path, new_path, win.MOVEFILE_REPLACE_EXISTING | win.MOVEFILE_WRITE_THROUGH);
+}
+
+pub fn copyFile(old_path: [:0]const u8, new_path: [:0]const u8) !void {
+    if (main.is_debug) log.debug("Copy: {s} -> {s}", .{ old_path, new_path });
+    const res = CopyFileExA(
+        old_path,
+        new_path,
+        null,
+        null,
+        null,
+        0x01,
+    );
+    if (res == win.FALSE) return if (win.GetLastError() == .FILE_EXISTS) Error.AlreadyExists else Error.Unexpected;
 }
 
 pub fn shellExecStatusMessage(status: usize) []const u8 {
@@ -443,7 +477,7 @@ fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
     if (maybe_sid) |sid| return sid;
     var username_buf: [128:0]u8 = undefined;
     var username_size: win.ULONG = @intCast(username_buf.len);
-    if (GetUserNameExA(.sam_compatible, &username_buf, &username_size) == 0) return error.UserNotFound;
+    if (GetUserNameExA(.sam_compatible, &username_buf, &username_size) == win.FALSE) return error.UserNotFound;
     var sid_bytes: [256]u8 = undefined;
     const sid: *SID = @ptrCast(mem.alignInBytes(&sid_bytes, @alignOf(SID)).?);
     var sid_size: win.ULONG = @intCast(sid_bytes.len - (@intFromPtr(&sid_bytes) - @intFromPtr(sid)));
@@ -451,16 +485,17 @@ fn getSid() error{ UserNotFound, LookupError, ConvertError }![]const u8 {
     var domain_size: win.ULONG = @intCast(domain_buf.len);
     var use: SID_NAME_USE = undefined;
     const res = LookupAccountNameA(null, &username_buf, sid, &sid_size, &domain_buf, &domain_size, &use);
-    if (res == 0) return error.LookupError;
+    if (res == win.FALSE) return error.LookupError;
     var converted_sid: ?win.LPSTR = null;
-    if (ConvertSidToStringSidA(sid, &converted_sid) == 0 or converted_sid == null) return error.ConvertError;
+    if (ConvertSidToStringSidA(sid, &converted_sid) == win.FALSE or converted_sid == null) return error.ConvertError;
     maybe_sid = mem.span(converted_sid.?);
     return maybe_sid.?;
 }
 
-fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) callconv(.C) win.LRESULT {
+fn newWindowProc(handle: win.HWND, message: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) callconv(.winapi) win.LRESULT {
     switch (message) {
         wm_char => switch (wparam) {
+            cut_char => event = .cut,
             copy_char => event = .copy,
             paste_char => event = .paste,
             undo_char => event = .undo,
@@ -510,3 +545,12 @@ extern fn GetLogicalDrives() callconv(.winapi) win.DWORD;
 extern fn GetDiskSpaceInformationA(root_path: ?win.LPCSTR, disk_space_info: *DISK_SPACE_INFORMATION) callconv(.winapi) win.HRESULT;
 
 extern fn GetDriveTypeA(root_path_name: ?win.LPCSTR) callconv(.winapi) DriveType;
+
+extern fn CopyFileExA(
+    existing_file_name: win.LPCSTR,
+    new_file_name: win.LPCSTR,
+    progress_routine: ?*PROGRESS_ROUTINE,
+    data: ?win.LPVOID,
+    cancel: ?*win.BOOL,
+    copy_flags: win.DWORD,
+) win.BOOL;
