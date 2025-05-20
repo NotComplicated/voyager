@@ -119,7 +119,7 @@ pub fn update(tab: *Tab, input: Input) Error!?Message {
     } else if (!tab.cwd.isActive() and !tab.entries.isActive()) {
         if (input.clicked(.side)) {
             return .open_parent_dir;
-        } else if (input.clicked(.left)) { // TODO middle click new tab for parent
+        } else if (input.clicked(.left) or input.clicked(.middle)) {
             inline for (comptime enums.values(meta.FieldEnum(@TypeOf(nav_buttons)))) |button| {
                 if (clay.pointerOver(@field(nav_buttons, @tagName(button)))) {
                     switch (button) {

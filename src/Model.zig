@@ -2,6 +2,7 @@ const std = @import("std");
 const process = std.process;
 const json = std.json;
 const math = std.math;
+const meta = std.meta;
 const mem = std.mem;
 const fs = std.fs;
 
@@ -115,6 +116,11 @@ pub fn update(model: *Model, input: Input) Error!void {
 
     if (try model.shortcuts.update(input)) |message| switch (message) {
         .open => |path| {
+            if (input.ctrl or input.clicked(.middle) or
+                meta.eql(input.action, .{ .mouse = .{ .state = .released, .button = .middle } }))
+            {
+                try model.newTab();
+            }
             const new_tab = try Tab.init(path, model.shortcuts.isBookmarked(path));
             model.currTab().deinit();
             model.currTab().* = new_tab;
@@ -222,7 +228,7 @@ pub fn update(model: *Model, input: Input) Error!void {
         },
 
         .open_parent_dir => {
-            if (input.ctrl) try model.newTab();
+            if (input.ctrl or input.clicked(.middle)) try model.newTab();
             try model.currTab().openParentDir();
             model.updateTabsBookmarked(model.currTab().directory());
         },

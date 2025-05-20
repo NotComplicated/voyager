@@ -168,7 +168,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
 
             const bookmark_id = clay.idi("Bookmark", @intCast(i));
             if (clay.pointerOver(bookmark_id)) {
-                if (input.clicked(.left)) {
+                if (input.clicked(.left) or input.clicked(.middle)) {
                     if (input.offset(bookmark_id)) |offset| {
                         const container = clay.getScrollContainerData(bookmarks_container_id);
                         if (container.found) shortcuts.drag_bookmark = .{
@@ -179,7 +179,6 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
                             .container = container,
                         };
                     }
-                    // TODO middle click new tab
                 } else if (input.clicked(.right)) {
                     shortcuts.menu_bookmark = i;
                     tooltip.disable();
@@ -200,8 +199,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
                 };
             } else for (shortcuts.drives.data.items, 0..) |*drive, i| {
                 if (clay.pointerOver(clay.idi("Drive", @intCast(i)))) {
-                    if (input.clicked(.left)) return .{ .open = &drive.path };
-                    // TODO middle click new tab
+                    if (input.clicked(.left) or input.clicked(.middle)) return .{ .open = &drive.path };
                     if (tooltip.update(input)) |writer| {
                         try fmt.format(
                             writer,
@@ -215,7 +213,7 @@ pub fn update(shortcuts: *Shortcuts, input: Input) Error!?Message {
     }
 
     if (input.action) |action| switch (action) {
-        .mouse => |mouse| if (mouse.button == .left) switch (mouse.state) {
+        .mouse => |mouse| if (mouse.button == .left or mouse.button == .middle) switch (mouse.state) {
             .pressed => {},
 
             .down => {

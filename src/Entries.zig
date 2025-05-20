@@ -61,6 +61,10 @@ pub const Message = union(enum) {
     paste,
 };
 
+const ContainerMenu = enum {
+    paste,
+};
+
 const Timespan = union(enum) {
     just_now,
     past: struct { count: u7, metric: TimespanMetric },
@@ -353,6 +357,10 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
         .delete => return if (try entries.getSelectedNames()) |names| .{ .delete = names } else null,
     };
 
+    if (menu.get(ContainerMenu, input)) |option| switch (option) {
+        .paste => return .paste,
+    };
+
     if (entries.new_item) |*new_item| {
         if (try new_item.name.update(input)) |message| switch (message) {
             .submit => |name| {
@@ -411,6 +419,10 @@ pub fn update(entries: *Entries, input: Input, focused: bool) Error!?Message {
                 }
             }
         }
+        menu.register(ContainerMenu, input.mouse_pos, .{
+            .paste = .{ .name = "Paste", .icon = &resources.images.paste },
+        });
+        return null;
     } else if (input.clicked(.middle) and clay.pointerOver(container_id)) {
         inline for (comptime kinds()) |kind| {
             var sorted_iter = entries.sorted(kind, &.{.name});
